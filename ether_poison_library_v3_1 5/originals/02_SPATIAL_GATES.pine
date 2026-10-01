@@ -1,0 +1,79 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © ClassicPotatoChamberXII
+
+//@version=6
+// @description Professional Spatial Gates for ETHER POISON.
+// Implements the hard filters: FVG, BOS, and CHoCH as entry permissions.
+
+import EP_Math as math_ep
+import EP_Types as types_ep
+
+// =============================================================================
+// 01. CONFIGURATION - MARKET INSTRUMENT STANDARDS
+// =============================================================================
+var string G_SPATIAL = "Spatial Gate Configuration"
+fvg_min_size    = input.float(0.5, "Min FVG Size (ATR x)", minval=0.0, step=0.1, group=G_SPATIAL)
+bos_lookback    = input.int(5, "Structure Lookback", minval=2, group=G_SPATIAL)
+choch_threshold = input.float(1.2, "CHoCH Magnitude (ATR x)", minval=0.1, step=0.1, group=G_SPATIAL)
+
+// =============================================================================
+// 02. FAIR VALUE GAP (FVG) DETECTION
+// =============================================================================
+
+f_detect_fvg() =>
+    float atr = ta.atr(14)
+    bool bull_fvg = low[0] > high[2] and (low[0] - high[2]) > (fvg_min_size * atr)
+    bool bear_fvg = high[0] < low[2] and (low[2] - high[0]) > (fvg_min_size * atr)
+    [bull_fvg, bear_fvg]
+
+[hasBullFvg, hasBearFvg] = f_detect_fvg()
+
+// =============================================================================
+// 03. STRUCTURE BREAKS (BOS & CHoCH)
+// =============================================================================
+
+// Simple Pivot-based structure
+float ph = ta.pivothigh(bos_lookback, bos_lookback)
+float pl = ta.pivotlow(bos_lookback, bos_lookback)
+
+var float lastHigh = na
+var float lastLow = na
+if not na(ph)
+    lastHigh := ph
+if not na(pl)
+    lastLow := pl
+
+// BOS: Break of structure in direction of flow
+bool bosBull = close > lastHigh
+bool bosBear = close < lastLow
+
+// CHoCH: Change of Character (Aggressive reversal)
+// Requires a move against the previous structural point with significant magnitude
+float atr = ta.atr(14)
+bool chochBull = close > lastHigh and (close - lastHigh) > (choch_threshold * atr)
+bool chochBear = close < lastLow and (lastLow - close) > (choch_threshold * atr)
+
+// =============================================================================
+// 04. PERMISSION LOGIC (THE GATEKEEPER)
+// =============================================================================
+
+f_get_spatial_permission(bool bullFvg, bool bearFvg, bool bBull, bool bBear, bool cBull, bool cBear) =>
+    // Long Permission: Requires FVG AND (BOS or CHoCH)
+    bool longAllowed = bullFvg and (bBull or cBull)
+    // Short Permission: Requires FVG AND (BOS or CHoCH)
+    bool shortAllowed = bearFvg and (bBear or cBear)
+    
+    types_ep.Permission perm = types_ep.Permission.WAIT
+    if longAllowed
+        perm := types_ep.Permission.OFFENSIVE
+    else if shortAllowed
+        perm := types_ep.Permission.DEFENSIVE
+    
+    perm
+
+// Execute Permission Check
+types_ep.Permission spatialPerm = f_get_spatial_permission(hasBullFvg, hasBearFvg, bosBull, bosBear, chochBull, chochBear)
+
+// Export for Master Orchestrator
+plot(hasBullFvg ? 1 : hasBearFvg ? -1 : 0, "FVG State", display=display.none)
+plot(bosBull ? 1 : bosBear ? -1 : 0, "BOS State", display=display.none)

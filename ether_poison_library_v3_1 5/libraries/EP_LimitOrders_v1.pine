@@ -1,0 +1,77 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0.
+// © ClassicPotatoChamberXII
+//@version=6
+// @description Resting-limit prices and lifecycle. No strategy orders or shared EP_Types dependency.
+library("EP_LimitOrders", overlay=true)
+
+// Each primitive field explicitly persists across fill recalculation/rollback.
+// A varip object reference alone does not make UDT fields intrabar-persistent.
+// Drawings remain caller-owned ordinary var.
+export type Ticket
+    varip bool active = false
+    varip string id = ""
+    varip string kind = ""
+    varip bool isLong = true
+    varip float price = na
+    varip float quantity = na
+    varip float positionAtArm = 0.0
+    varip int zoneAtArm = na
+    varip int bornBar = na
+    varip int expiryBar = na
+    varip int serial = 0
+    varip int eventSerial = 0
+    varip int eventBar = na
+    varip int eventTime = na
+    varip string event = "IDLE"
+    varip string reason = ""
+    varip float eventPrice = na
+
+export create() =>
+    Ticket.new()
+
+// Buy below current price / sell above current price; never silently convert a
+// marketable limit into an immediate order. Price rounds away from current price.
+export entryPrice(bool isLong, string basis, float closePrice, float atr, float offsetAtr, int offsetTicks, float zoneTop, float zoneBottom, float tick) =>
+    float raw = basis == "FVG midpoint" ? (zoneTop + zoneBottom) * 0.5 : basis == "FVG near edge" ? (isLong ? zoneTop : zoneBottom) : basis == "Ticks from close" ? closePrice + (isLong ? -1.0 : 1.0) * offsetTicks * tick : closePrice + (isLong ? -1.0 : 1.0) * atr * offsetAtr
+    isLong ? math.floor(raw / tick) * tick : math.ceil(raw / tick) * tick
+
+export isPassive(bool isLong, float price, float currentPrice, float tick) =>
+    not na(price) and price > 0.0 and (isLong ? price <= currentPrice - tick * 0.5 : price >= currentPrice + tick * 0.5)
+
+// Close-calculated expiry: cancel at the expiry bar's close if still unfilled.
+export cancellationReason(Ticket ticket, int bar, float positionSize, bool oppositeApproval, bool cancelOpposite, bool zoneValid, bool cancelZone, bool harvesting) =>
+    not ticket.active ? "" : positionSize != ticket.positionAtArm ? "Position changed" : harvesting ? "Harvest" : bar >= ticket.expiryBar ? "Expired" : cancelOpposite and oppositeApproval ? "Opposite approval" : cancelZone and not zoneValid ? "FVG replaced or invalidated" : ""
+
+export canArm(Ticket ticket, int bar, bool confirmed, bool fillPass) =>
+    not ticket.active and confirmed and not fillPass and (na(ticket.eventBar) or bar > ticket.eventBar)
+
+export arm(Ticket ticket, bool isLong, string kind, float price, float quantity, float positionSize, int zoneBar, int bar, int stamp, int lifetime) =>
+    ticket.serial += 1
+    ticket.active := true
+    ticket.id := "LIMIT_" + (kind == "RESCUE" ? "RESCUE_" : "") + (isLong ? "LONG_" : "SHORT_") + str.tostring(ticket.serial)
+    ticket.kind := kind
+    ticket.isLong := isLong
+    ticket.price := price
+    ticket.quantity := quantity
+    ticket.positionAtArm := positionSize
+    ticket.zoneAtArm := zoneBar
+    ticket.bornBar := bar
+    ticket.expiryBar := bar + math.max(lifetime, 1)
+    ticket.eventSerial += 1
+    ticket.eventBar := bar
+    ticket.eventTime := stamp
+    ticket.event := "PLACED"
+    ticket.reason := "Resting limit submitted"
+    ticket.eventPrice := price
+    ticket
+
+// Only broker-emulator fill records may call finish(..., "FILLED", ...).
+export finish(Ticket ticket, string status, string reason, float price, int bar, int stamp) =>
+    ticket.active := false
+    ticket.eventSerial += 1
+    ticket.eventBar := bar
+    ticket.eventTime := stamp
+    ticket.event := status
+    ticket.reason := reason
+    ticket.eventPrice := price
+    ticket

@@ -1,0 +1,71 @@
+{
+  "owner": "ClassicPotatoChamberXII",
+  "status": "EP_Types/4 observed in user compiler diagnostic; other remote publication versions remain unverified",
+  "libraries": [
+    {
+      "name": "EP_Candles",
+      "version": 2,
+      "file": "libraries/EP_Candles_v2.pine"
+    },
+    {
+      "name": "EP_Engines",
+      "version": 3,
+      "file": "libraries/EP_Engines_v3.pine"
+    },
+    {
+      "name": "EP_ExecutionLedger",
+      "version": 1,
+      "file": "libraries/EP_ExecutionLedger_v1.pine"
+    },
+    {
+      "name": "EP_KineticCore",
+      "version": 1,
+      "file": "libraries/EP_KineticCore_v1.pine"
+    },
+    {
+      "name": "EP_Math",
+      "version": 3,
+      "file": "libraries/EP_Math_v3.pine"
+    },
+    {
+      "name": "EP_Nocturne",
+      "version": 2,
+      "file": "libraries/EP_Nocturne_v2.pine"
+    },
+    {
+      "name": "EP_RescueEngine",
+      "version": 1,
+      "file": "libraries/EP_RescueEngine_v1.pine"
+    },
+    {
+      "name": "EP_SpaceTimeGrid",
+      "version": 1,
+      "file": "libraries/EP_SpaceTimeGrid_v1.pine"
+    },
+    {
+      "name": "EP_SpatialGates",
+      "version": 1,
+      "file": "libraries/EP_SpatialGates_v1.pine"
+    },
+    {
+      "name": "EP_Types",
+      "version": 4,
+      "file": "libraries/EP_Types_v3.pine"
+    },
+    {
+      "name": "EP_MarketOrders",
+      "version": 1,
+      "file": "libraries/EP_MarketOrders_v1.pine"
+    },
+    {
+      "name": "EP_LimitOrders",
+      "version": 1,
+      "file": "libraries/EP_LimitOrders_v1.pine"
+    },
+    {
+      "name": "EP_CloudScreen",
+      "version": 1,
+      "file": "libraries/EP_CloudScreen_v1.pine"
+    }
+  ]
+}

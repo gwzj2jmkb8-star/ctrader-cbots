@@ -1,0 +1,117 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0.
+// © ClassicPotatoChamberXII
+//@version=6
+// @description Shared ETHER state vocabulary v2.
+library("EP_Types")
+
+export enum Direction
+    LONG = "LONG"
+    SHORT = "SHORT"
+    WAIT = "WAIT"
+
+export enum EnergyState
+    EXPANSION = "EXPANSION"
+    IMPULSE = "IMPULSE"
+    BALANCED = "BALANCED"
+    COMPRESSION = "COMPRESSION"
+
+export enum GateState
+    OPEN = "OPEN"
+    PARTIAL = "PARTIAL"
+    BLOCKED = "BLOCKED"
+
+export enum FvgState
+    NONE = "NONE"
+    FRESH = "FRESH"
+    PARTIAL = "PARTIAL"
+    INVERTED = "INVERTED"
+    FILLED = "FILLED"
+
+export enum EntropyState
+    ORDERED = "ORDERED"
+    MIXED = "MIXED"
+    DIFFUSE = "DIFFUSE"
+    CHAOTIC = "CHAOTIC"
+
+export enum CloudLane
+    FAST = "FAST"
+    BALANCED = "BALANCED"
+    SLOW = "SLOW"
+
+// Compatibility vocabulary retained for scripts built on the first ETHER API.
+export enum Toxicity
+    LETHAL = "LETHAL"
+    VIRAL = "VIRAL"
+    DORMANT = "DORMANT"
+    STABLE = "STABLE"
+
+export enum EnergyFlow
+    ASCENDING = "ASCENDING"
+    DESCENDING = "DESCENDING"
+    VORTEX = "VORTEX"
+    STATIC = "STATIC"
+
+export enum Permission
+    OFFENSIVE = "OFFENSIVE"
+    DEFENSIVE = "DEFENSIVE"
+    WAIT = "WAIT"
+
+export type KineticState
+    float magnitude = 0.0
+    Toxicity toxicity = Toxicity.DORMANT
+    EnergyFlow flow = EnergyFlow.STATIC
+    float conviction = 0.0
+
+export type OutcomeState
+    Permission permission = Permission.WAIT
+    float score = 0.0
+    string reason = "NONE"
+    string signature = "NONE"
+
+export type EngineState
+    Direction direction = Direction.WAIT
+    EnergyState energy = EnergyState.BALANCED
+    GateState gate = GateState.BLOCKED
+    float longScore = 0.0
+    float shortScore = 0.0
+    float conviction = 0.0
+    string reason = "WAIT"
+
+// Complete output contract of the Multiplexer Cloud.
+export type CloudState
+    float spanA = na
+    float spanB = na
+    float center = na
+    float widthAtr = 0.0
+    float direction = 0.0
+    float entropyFast = 1.0
+    float entropyMedium = 1.0
+    float entropySlow = 1.0
+    float entropyComposite = 1.0
+    float tempAtten = 0.0
+    float densityFast = 0.0
+    float densityMedium = 0.0
+    float densitySlow = 0.0
+    float agreement = 0.0
+    float confidence = 0.0
+    EntropyState entropyState = EntropyState.CHAOTIC
+    CloudLane dominantLane = CloudLane.BALANCED
+    bool valid = false
+
+export directionValue(Direction direction) =>
+    direction == Direction.LONG ? 1 : direction == Direction.SHORT ? -1 : 0
+
+export permissionDirection(Permission permission) =>
+    permission == Permission.OFFENSIVE ? 1 : permission == Permission.DEFENSIVE ? -1 : 0
+
+export entropyName(EntropyState state) =>
+    state == EntropyState.ORDERED ? "ORDERED" : state == EntropyState.MIXED ? "MIXED" : state == EntropyState.DIFFUSE ? "DIFFUSE" : "CHAOTIC"
+
+export laneName(CloudLane lane) =>
+    lane == CloudLane.FAST ? "FAST" : lane == CloudLane.SLOW ? "SLOW" : "BALANCED"
+
+// 03_RESCUE_ENGINE / jade state, promoted into the shared type contract.
+export type RescueState
+    int cycles = 0
+    float lastRescuePrice = na
+    bool isRecovering = false

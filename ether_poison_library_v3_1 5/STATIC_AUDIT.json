@@ -1,0 +1,275 @@
+{
+  "file": "ETHER_POISON_LIBRARY_PREVIEW.pine",
+  "status": "PASS",
+  "kind": "static-only; not TradingView compilation",
+  "conservative_plot_count": 61,
+  "by_call": {
+    "bgcolor": 2,
+    "plot": 38,
+    "fill": 9,
+    "barcolor": 1,
+    "plotcandle": 7,
+    "alertcondition": 4
+  },
+  "errors": [],
+  "warnings": [
+    "Inherited alertcondition declarations retained; use strategy order-fill alerts for fills."
+  ],
+  "visual_calls": [
+    {
+      "line": 1602,
+      "call": "bgcolor",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1604,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1605,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1606,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1607,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1608,
+      "call": "fill",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1610,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1611,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1612,
+      "call": "fill",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1614,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1615,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1616,
+      "call": "fill",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1620,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1621,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1622,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1623,
+      "call": "fill",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1626,
+      "call": "bgcolor",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1627,
+      "call": "barcolor",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1637,
+      "call": "plot",
+      "upper_plot_count": 2
+    },
+    {
+      "line": 1644,
+      "call": "plot",
+      "upper_plot_count": 2
+    },
+    {
+      "line": 1651,
+      "call": "plot",
+      "upper_plot_count": 2
+    },
+    {
+      "line": 1658,
+      "call": "plot",
+      "upper_plot_count": 2
+    },
+    {
+      "line": 1667,
+      "call": "fill",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1668,
+      "call": "fill",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1670,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1676,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1682,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1688,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1694,
+      "call": "fill",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1695,
+      "call": "fill",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1696,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1702,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1708,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1709,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1710,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1711,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1789,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1790,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1791,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1792,
+      "call": "fill",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1793,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1826,
+      "call": "plotcandle",
+      "upper_plot_count": 7
+    },
+    {
+      "line": 1827,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1828,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1829,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1830,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 1831,
+      "call": "plot",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 2141,
+      "call": "alertcondition",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 2142,
+      "call": "alertcondition",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 2143,
+      "call": "alertcondition",
+      "upper_plot_count": 1
+    },
+    {
+      "line": 2144,
+      "call": "alertcondition",
+      "upper_plot_count": 1
+    }
+  ]
+}

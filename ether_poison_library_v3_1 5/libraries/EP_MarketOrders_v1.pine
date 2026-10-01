@@ -1,0 +1,11 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0.
+// © ClassicPotatoChamberXII
+//@version=6
+// @description Market-engine eligibility. Order dispatch stays in the strategy.
+library("EP_MarketOrders")
+
+export entryEligible(bool approved, bool isLong, float positionSize) =>
+    approved and (isLong ? positionSize <= 0.0 : positionSize >= 0.0)
+
+export rescueEligible(bool window, float quantity) =>
+    window and quantity > 0.0

@@ -1,0 +1,909 @@
+//@version=6
+strategy(
+    "Ichimoku Time Theory • Rapid FVG Chart Strategy",
+    overlay = true,
+    initial_capital = 10000,
+    pyramiding = 0,
+    commission_type = strategy.commission.percent,
+    commission_value = 0.06,
+    slippage = 0,
+    process_orders_on_close = true,
+    calc_on_order_fills = true,
+    max_boxes_count = 400,
+    max_lines_count = 240,
+    max_labels_count = 240
+)
+
+//=============================================================================
+// 01. INPUTS + PALETTE
+//=============================================================================
+
+groupCloud = "01 • Ichimoku / Area Cloud"
+lengthProfile = input.string("Classic", "Length profile", options = ["Rapid", "Classic", "Position", "Custom"], tooltip = "Rapid: 6 / 18 / 36\nClassic: 9 / 26 / 52\nPosition: 18 / 52 / 104\nCustom unlocks the length controls below.", group = groupCloud)
+customLengths = lengthProfile == "Custom"
+tenkanLen = input.int(9, "Tenkan", tooltip = "Conversion-line lookback. Runtime protection handles zero and negative values without panel bounds.", inline = "ichi1", group = groupCloud, active = customLengths)
+kijunLen = input.int(26, "Kijun", tooltip = "Base-line lookback and primary Time Theory rhythm.", inline = "ichi1", group = groupCloud, active = customLengths)
+spanBLen = input.int(52, "Span B", tooltip = "Slow cloud boundary and structural equilibrium range.", inline = "ichi2", group = groupCloud, active = customLengths)
+displacement = input.int(26, "Shift", tooltip = "Forward projection of Senkou spans. Negative values are allowed deliberately.", inline = "ichi2", group = groupCloud)
+cloudSmooth = input.int(5, "Field smoothing", tooltip = "Smooths the composite FVG navigation field, not the raw gap coordinates.", group = groupCloud)
+showCloud = input.bool(true, "Projected A/B cloud", tooltip = "Projected Senkou navigation span.", inline = "vis1", group = groupCloud)
+showArea = input.bool(true, "Rapid FVG cloud", tooltip = "Adaptive area built from the latest active rapid gap and Ichimoku equilibrium.", inline = "vis1", group = groupCloud)
+showGrid = input.bool(true, "Structure grid", tooltip = "Displays 25%, 50% and 75% navigation levels between committed swings.", inline = "vis1", group = groupCloud)
+
+groupFvg = "02 • Rapid Expansion / FVG"
+atrLen = input.int(14, "ATR length", tooltip = "Shared volatility context for expansion, field width, stops and visual normalization.", group = groupFvg)
+expansionAtr = input.float(1.25, "Body × ATR", step = 0.05, tooltip = "Required displacement-body strength on the middle candle of a three-candle gap.", inline = "exp", group = groupFvg)
+fvgMinAtr = input.float(0.08, "Gap × ATR", step = 0.01, tooltip = "Smallest accepted imbalance relative to current volatility.", inline = "exp", group = groupFvg)
+volumeLen = input.int(20, "Volume baseline", tooltip = "Reference length for displacement participation.", inline = "vol", group = groupFvg)
+volumeFactor = input.float(1.10, "Volume factor", step = 0.05, tooltip = "Expansion volume divided by baseline volume.", inline = "vol", group = groupFvg)
+fvgQuantity = input.int(24, "Visible fields", tooltip = "Registry capacity. Oldest fields retire first; drawings remain outside the plot budget.", group = groupFvg)
+mitigationMode = input.string("Midpoint", "Mitigation", options = ["Touch", "Midpoint", "Full fill"], tooltip = "Touch reacts at the near edge. Midpoint waits for equilibrium. Full fill waits for the far edge.", group = groupFvg)
+extendFvg = input.bool(true, "Extend active", tooltip = "Projects active FVG and iFVG fields to the right.", inline = "life", group = groupFvg)
+showInversions = input.bool(true, "iFVG markers", tooltip = "Adds compact inversion markers and hover diagnostics.", inline = "life", group = groupFvg)
+retainMitigated = input.bool(true, "Keep history", tooltip = "Fades completed fields instead of deleting them immediately.", inline = "life", group = groupFvg)
+
+groupStructure = "03 • Pivots / Waves"
+pivotLeft = input.int(5, "Left", tooltip = "Bars required on the left side of a confirmed structural pivot.", inline = "pivot", group = groupStructure)
+pivotRight = input.int(5, "Right", tooltip = "Confirmation bars. Larger values confirm later and reduce noise.", inline = "pivot", group = groupStructure)
+swingMemory = input.int(100, "Swing recency", tooltip = "Maximum pivot age accepted by execution confluence.", group = groupStructure)
+fastGoldenLen = input.int(50, "Golden fast", tooltip = "Fast regime wave used for golden/death cross context.", inline = "gold", group = groupStructure)
+slowGoldenLen = input.int(200, "Golden slow", tooltip = "Slow regime wave used for golden/death cross context.", inline = "gold", group = groupStructure)
+timeTolerance = input.int(1, "Time tolerance", tooltip = "Number of bars accepted on either side of each Kihon Suchi count.", group = groupStructure)
+showPivots = input.bool(true, "Pivot markers", tooltip = "Confirmed pivots only; markers are shifted back to the originating bar.", inline = "wavevis", group = groupStructure)
+showTimeRails = input.bool(true, "Kihon rails", tooltip = "Projects 9, 17, 26, 33, 42, 65 and 76 bars from each confirmed pivot. Hover the muted count label for anchor details.", inline = "wavevis", group = groupStructure)
+
+groupOsc = "04 • Multidimensional Oscillators"
+rsiLen = input.int(14, "RSI", tooltip = "Centered momentum dimension, normalized to -100…+100.", inline = "osc1", group = groupOsc)
+stochLen = input.int(14, "Stochastic", tooltip = "Range-position dimension, normalized to -100…+100.", inline = "osc1", group = groupOsc)
+rocLen = input.int(9, "ROC", tooltip = "Velocity dimension normalized by its rolling deviation.", inline = "osc2", group = groupOsc)
+regLen = input.int(34, "Regression", tooltip = "Linear-regression slope and error context.", inline = "osc2", group = groupOsc)
+oscSmooth = input.int(5, "Composite smoothing", tooltip = "Signal latency versus noise control for the five-dimensional oscillator.", group = groupOsc)
+breakoutBand = input.float(35.0, "Breakout", step = 1.0, tooltip = "Composite magnitude required for directional expansion.", inline = "bands", group = groupOsc)
+reversionBand = input.float(55.0, "Reversion", step = 1.0, tooltip = "Prior-bar oscillator extreme required for a reversal trigger.", inline = "bands", group = groupOsc)
+
+groupAdam = "05 • Adam / Reversion Field"
+adamBeta1Input = input.float(0.90, "β1", step = 0.01, tooltip = "First-moment decay for directional pressure.", inline = "adam", group = groupAdam)
+adamBeta2Input = input.float(0.999, "β2", step = 0.001, tooltip = "Second-moment decay for squared pressure.", inline = "adam", group = groupAdam)
+adamEpsilonInput = input.float(0.000001, "ε", step = 0.000001, tooltip = "Numerical stabilizer applied after bias correction.", inline = "adam", group = groupAdam)
+adamGain = input.float(0.35, "Envelope gain", step = 0.05, tooltip = "How strongly normalized Adam pressure expands the reversion field.", group = groupAdam)
+reversionLength = input.int(34, "Basis", tooltip = "Smoothed mean-reversion center length.", inline = "rev", group = groupAdam)
+reversionSmooth = input.int(5, "Smooth", tooltip = "Second-stage smoothing of the floating Time Theory wave.", inline = "rev", group = groupAdam)
+reversionStep = input.float(0.45, "Rail spacing", step = 0.05, tooltip = "ATR-scaled distance between adjacent reversion rails.", group = groupAdam)
+showReversionField = input.bool(true, "Eight-rail field", tooltip = "Four upper and four lower rails with layered navigation fills.", group = groupAdam)
+
+groupTrade = "06 • Entries / Risk"
+tradeMode = input.string("Breakout + Reversion", "Signal mode", options = ["Breakout", "Reversion", "Breakout + Reversion"], tooltip = "Select expansion, snap-back, or both execution families.", group = groupTrade)
+minimumScore = input.float(70.0, "Perfect score", step = 1.0, tooltip = "Minimum multidimensional confluence score required before entry.", group = groupTrade)
+riskPercent = input.float(1.0, "Equity risk %", step = 0.1, tooltip = "Position size uses stop distance and instrument point value.", group = groupTrade)
+stopAtr = input.float(1.8, "Stop", step = 0.1, tooltip = "ATR stop multiple combined with committed swing protection.", inline = "risk", group = groupTrade)
+targetAtr = input.float(3.2, "Target", step = 0.1, tooltip = "ATR target for the 60% runner.", inline = "risk", group = groupTrade)
+trailAtr = input.float(1.2, "Trail", step = 0.1, tooltip = "Tick-normalized activation and offset for the runner.", inline = "risk", group = groupTrade)
+allowLong = input.bool(true, "Long", tooltip = "Allow bullish strategy orders.", inline = "sides", group = groupTrade)
+allowShort = input.bool(true, "Short", tooltip = "Allow bearish strategy orders.", inline = "sides", group = groupTrade)
+closedBarSignals = input.bool(true, "Confirmed bars", tooltip = "When enabled, entries wait for bar close to reduce realtime/historical divergence.", group = groupTrade)
+
+colorBull = input.color(color.rgb(0, 220, 170), "Bull", group = "07 • Palette")
+colorBear = input.color(color.rgb(255, 72, 106), "Bear", group = "07 • Palette")
+colorGold = input.color(color.rgb(255, 193, 7), "Time / Gold", group = "07 • Palette")
+colorNeutral = input.color(color.rgb(116, 128, 154), "Neutral", group = "07 • Palette")
+colorWave = input.color(color.rgb(102, 126, 234), "Reversion wave", group = "07 • Palette")
+colorMutedText = input.color(color.rgb(148, 163, 184), "Muted text", tooltip = "Used inside FVG fields and hover anchors to keep price bars readable.", group = "07 • Palette")
+
+//=============================================================================
+// 02. PURE UTILITIES
+//=============================================================================
+
+f_clamp(float value, float floor, float ceiling) =>
+    math.max(floor, math.min(ceiling, value))
+
+f_signed_norm(float value, float scale) =>
+    scale == 0.0 ? 0.0 : f_clamp(100.0 * value / scale, -100.0, 100.0)
+
+f_time_hit(int age, int tolerance) =>
+    hit09 = math.abs(age - 9) <= tolerance
+    hit17 = math.abs(age - 17) <= tolerance
+    hit26 = math.abs(age - 26) <= tolerance
+    hit33 = math.abs(age - 33) <= tolerance
+    hit42 = math.abs(age - 42) <= tolerance
+    hit65 = math.abs(age - 65) <= tolerance
+    hit76 = math.abs(age - 76) <= tolerance
+    hit09 or hit17 or hit26 or hit33 or hit42 or hit65 or hit76
+
+f_qty(float riskCash, float stopDistance) =>
+    contractRisk = stopDistance * math.max(syminfo.pointvalue, syminfo.mintick)
+    contractRisk > syminfo.mintick ? riskCash / contractRisk : 0.0
+
+f_safe_ratio(float value, float fallback) =>
+    na(value) or value == 0.0 ? fallback : math.abs(value)
+
+f_event_label(int x, float y, string glyph, string hoverText, color glyphColor) =>
+    label.new(x = x, y = y, text = glyph, xloc = xloc.bar_index, yloc = yloc.price, color = color.new(glyphColor, 100), style = label.style_none, textcolor = glyphColor, size = size.tiny, tooltip = hoverText, text_font_family = font.family_monospace, force_overlay = true)
+
+// Panel values remain unrestricted. These runtime forms protect calculations
+// from zero/negative lengths and invalid Adam proportions.
+profileTenkan = lengthProfile == "Rapid" ? 6 : lengthProfile == "Position" ? 18 : 9
+profileKijun = lengthProfile == "Rapid" ? 18 : lengthProfile == "Position" ? 52 : 26
+profileSpanB = lengthProfile == "Rapid" ? 36 : lengthProfile == "Position" ? 104 : 52
+simple int customTenkanPeriod = math.max(1, math.abs(tenkanLen))
+simple int customKijunPeriod = math.max(1, math.abs(kijunLen))
+simple int customSpanBPeriod = math.max(1, math.abs(spanBLen))
+simple int tenkanPeriod = customLengths ? customTenkanPeriod : profileTenkan
+simple int kijunPeriod = customLengths ? customKijunPeriod : profileKijun
+simple int spanBPeriod = customLengths ? customSpanBPeriod : profileSpanB
+simple int cloudSmoothPeriod = math.max(1, math.abs(cloudSmooth))
+simple int atrPeriod = math.max(1, math.abs(atrLen))
+simple int volumePeriod = math.max(1, math.abs(volumeLen))
+simple int pivotLeftBars = math.max(1, math.abs(pivotLeft))
+simple int pivotRightBars = math.max(1, math.abs(pivotRight))
+simple int fastGoldenPeriod = math.max(1, math.abs(fastGoldenLen))
+simple int slowGoldenPeriod = math.max(1, math.abs(slowGoldenLen))
+simple int rsiPeriod = math.max(1, math.abs(rsiLen))
+simple int stochPeriod = math.max(1, math.abs(stochLen))
+simple int rocPeriod = math.max(1, math.abs(rocLen))
+simple int regressionPeriod = math.max(1, math.abs(regLen))
+simple int oscSmoothPeriod = math.max(1, math.abs(oscSmooth))
+simple int reversionPeriod = math.max(1, math.abs(reversionLength))
+simple int reversionSmoothPeriod = math.max(1, math.abs(reversionSmooth))
+adamBeta1 = f_clamp(math.abs(adamBeta1Input), 0.0, 0.999999)
+adamBeta2 = f_clamp(math.abs(adamBeta2Input), 0.0, 0.999999)
+adamEpsilon = f_safe_ratio(adamEpsilonInput, 0.000001)
+
+//=============================================================================
+// 03. ICHIMOKU, EXPANSION, FVG + STRUCTURE CALCULATIONS
+//=============================================================================
+
+tenkanHighest = ta.highest(high, tenkanPeriod)
+tenkanLowest = ta.lowest(low, tenkanPeriod)
+tenkan = (tenkanHighest + tenkanLowest) * 0.5
+kijunHighest = ta.highest(high, kijunPeriod)
+kijunLowest = ta.lowest(low, kijunPeriod)
+kijun = (kijunHighest + kijunLowest) * 0.5
+spanA = (tenkan + kijun) * 0.5
+spanBHighest = ta.highest(high, spanBPeriod)
+spanBLowest = ta.lowest(low, spanBPeriod)
+spanB = (spanBHighest + spanBLowest) * 0.5
+cloudTop = math.max(spanA, spanB)
+cloudBottom = math.min(spanA, spanB)
+futureBull = spanA > spanB
+
+atr = ta.atr(atrPeriod)
+body = math.abs(close - open)
+volumeBase = ta.sma(volume, volumePeriod)
+volumeImpulse = na(volume) or na(volumeBase) or volume >= volumeBase * volumeFactor
+rapidBull = close > open and body >= atr * expansionAtr and volumeImpulse
+rapidBear = close < open and body >= atr * expansionAtr and volumeImpulse
+
+bullFvg = low > high[2]
+bearFvg = high < low[2]
+bullRapidFvg = bullFvg and rapidBull[1] and low - high[2] >= atr * math.abs(fvgMinAtr)
+bearRapidFvg = bearFvg and rapidBear[1] and low[2] - high >= atr * math.abs(fvgMinAtr)
+bullGapTop = bullFvg ? low : na
+bullGapBottom = bullFvg ? high[2] : na
+bearGapTop = bearFvg ? low[2] : na
+bearGapBottom = bearFvg ? high : na
+bullGapMid = (bullGapTop + bullGapBottom) * 0.5
+bearGapMid = (bearGapTop + bearGapBottom) * 0.5
+
+var float activeBullTop = na
+var float activeBullBottom = na
+var float activeBearTop = na
+var float activeBearBottom = na
+
+if bullRapidFvg
+    activeBullTop := bullGapTop
+    activeBullBottom := bullGapBottom
+
+if bearRapidFvg
+    activeBearTop := bearGapTop
+    activeBearBottom := bearGapBottom
+
+bullTouchMitigation = not na(activeBullTop) and low <= activeBullTop
+bullMidMitigation = not na(activeBullBottom) and low <= (activeBullTop + activeBullBottom) * 0.5
+bullFullMitigation = not na(activeBullBottom) and low <= activeBullBottom
+bullMitigated = mitigationMode == "Touch" ? bullTouchMitigation : mitigationMode == "Midpoint" ? bullMidMitigation : bullFullMitigation
+
+bearTouchMitigation = not na(activeBearBottom) and high >= activeBearBottom
+bearMidMitigation = not na(activeBearTop) and high >= (activeBearTop + activeBearBottom) * 0.5
+bearFullMitigation = not na(activeBearTop) and high >= activeBearTop
+bearMitigated = mitigationMode == "Touch" ? bearTouchMitigation : mitigationMode == "Midpoint" ? bearMidMitigation : bearFullMitigation
+
+if bullMitigated
+    activeBullTop := na
+    activeBullBottom := na
+
+if bearMitigated
+    activeBearTop := na
+    activeBearBottom := na
+
+bullActiveCenter = (activeBullTop + activeBullBottom) * 0.5
+bearActiveCenter = (activeBearTop + activeBearBottom) * 0.5
+cloudCenter = (cloudTop + cloudBottom) * 0.5
+fvgCenterRaw = not na(activeBullTop) ? bullActiveCenter : not na(activeBearTop) ? bearActiveCenter : cloudCenter
+fvgCenter = ta.ema(fvgCenterRaw, cloudSmoothPeriod)
+fvgUpper = ta.ema(not na(activeBullTop) ? activeBullTop : not na(activeBearTop) ? activeBearTop : cloudTop, cloudSmoothPeriod)
+fvgLower = ta.ema(not na(activeBullBottom) ? activeBullBottom : not na(activeBearBottom) ? activeBearBottom : cloudBottom, cloudSmoothPeriod)
+
+pivotHigh = ta.pivothigh(high, pivotLeftBars, pivotRightBars)
+pivotLow = ta.pivotlow(low, pivotLeftBars, pivotRightBars)
+var float lastSwingHigh = na
+var float priorSwingHigh = na
+var int lastSwingHighBar = na
+var float lastSwingLow = na
+var float priorSwingLow = na
+var int lastSwingLowBar = na
+
+if not na(pivotHigh)
+    priorSwingHigh := lastSwingHigh
+    lastSwingHigh := pivotHigh
+    lastSwingHighBar := bar_index - pivotRightBars
+
+if not na(pivotLow)
+    priorSwingLow := lastSwingLow
+    lastSwingLow := pivotLow
+    lastSwingLowBar := bar_index - pivotRightBars
+
+higherHigh = not na(lastSwingHigh) and not na(priorSwingHigh) and lastSwingHigh > priorSwingHigh
+higherLow = not na(lastSwingLow) and not na(priorSwingLow) and lastSwingLow > priorSwingLow
+lowerHigh = not na(lastSwingHigh) and not na(priorSwingHigh) and lastSwingHigh < priorSwingHigh
+lowerLow = not na(lastSwingLow) and not na(priorSwingLow) and lastSwingLow < priorSwingLow
+bullStructure = higherHigh and higherLow
+bearStructure = lowerHigh and lowerLow
+
+barsFromHigh = na(lastSwingHighBar) ? 100000 : bar_index - lastSwingHighBar
+barsFromLow = na(lastSwingLowBar) ? 100000 : bar_index - lastSwingLowBar
+bullTimeWave = f_time_hit(barsFromLow, timeTolerance)
+bearTimeWave = f_time_hit(barsFromHigh, timeTolerance)
+timeWave = bullTimeWave or bearTimeWave
+
+// Kihon Suchi projection set: 9, 17, 26, 33, 42, 65, 76.
+// Rails are drawing objects, so they preserve the scarce 64-plot budget.
+var array<int> timeCounts = array.from(9, 17, 26, 33, 42, 65, 76)
+var array<line> timeRails = array.new<line>()
+var array<label> timeRailLabels = array.new<label>()
+
+if showTimeRails and (not na(pivotHigh) or not na(pivotLow))
+    timeAnchorBar = bar_index - pivotRightBars
+    timeAnchorPrice = not na(pivotHigh) ? pivotHigh : pivotLow
+    timeAnchorAtr = nz(atr[pivotRightBars], atr)
+    timeRailColor = not na(pivotHigh) ? colorBear : colorBull
+    for timeCount in timeCounts
+        projectedBar = timeAnchorBar + timeCount
+        projectedRail = line.new(
+            x1 = projectedBar,
+            y1 = timeAnchorPrice - timeAnchorAtr,
+            x2 = projectedBar,
+            y2 = timeAnchorPrice + timeAnchorAtr,
+            xloc = xloc.bar_index,
+            extend = extend.none,
+            color = color.new(timeRailColor, 74),
+            style = line.style_dotted,
+            width = timeCount == 26 or timeCount == 65 ? 2 : 1,
+            force_overlay = true
+        )
+        projectedLabel = label.new(
+            x = projectedBar,
+            y = timeAnchorPrice + timeAnchorAtr,
+            text = str.tostring(timeCount),
+            xloc = xloc.bar_index,
+            yloc = yloc.price,
+            color = color.new(timeRailColor, 100),
+            style = label.style_none,
+            textcolor = color.new(colorMutedText, 48),
+            size = size.tiny,
+            textalign = text.align_center,
+            tooltip = "KIHON SUCHI " + str.tostring(timeCount) + "\nAnchor bar: " + str.tostring(timeAnchorBar) + "\nProjected bar: " + str.tostring(projectedBar) + "\nAnchor price: " + str.tostring(timeAnchorPrice, format.mintick),
+            text_font_family = font.family_monospace,
+            force_overlay = true
+        )
+        array.push(timeRails, projectedRail)
+        array.push(timeRailLabels, projectedLabel)
+
+while array.size(timeRails) > 56
+    retiredRail = array.shift(timeRails)
+    retiredRailLabel = array.shift(timeRailLabels)
+    line.delete(retiredRail)
+    label.delete(retiredRailLabel)
+
+if not showTimeRails
+    while array.size(timeRails) > 0
+        hiddenRail = array.shift(timeRails)
+        hiddenRailLabel = array.shift(timeRailLabels)
+        line.delete(hiddenRail)
+        label.delete(hiddenRailLabel)
+
+// Elliott-style state is objective and pivot-based: impulse 1/3/5 requires
+// alternating confirmed swings and structure expansion. It is not discretionary
+// Elliott labeling and does not inspect future bars beyond pivot confirmation.
+var int bullWave = 0
+var int bearWave = 0
+if not na(pivotLow) and higherLow
+    bullWave := bullWave == 0 or bullWave >= 5 ? 1 : bullWave + 1
+if not na(pivotHigh) and higherHigh
+    bullWave := bullWave == 0 ? 1 : math.min(5, bullWave + 1)
+if not na(pivotHigh) and lowerHigh
+    bearWave := bearWave == 0 or bearWave >= 5 ? 1 : bearWave + 1
+if not na(pivotLow) and lowerLow
+    bearWave := bearWave == 0 ? 1 : math.min(5, bearWave + 1)
+bullImpulseWave = bullWave == 3 or bullWave == 5
+bearImpulseWave = bearWave == 3 or bearWave == 5
+
+goldFast = ta.ema(close, fastGoldenPeriod)
+goldSlow = ta.ema(close, slowGoldenPeriod)
+goldenCross = ta.crossover(goldFast, goldSlow)
+deathCross = ta.crossunder(goldFast, goldSlow)
+goldBull = goldFast > goldSlow and goldFast > goldFast[1]
+goldBear = goldFast < goldSlow and goldFast < goldFast[1]
+tenkanBullCross = ta.crossover(tenkan, kijun)
+tenkanBearCross = ta.crossunder(tenkan, kijun)
+
+//=============================================================================
+// 04. MULTIDIMENSIONAL OSCILLATOR + MARKET CLASSIFICATION
+//=============================================================================
+
+rsiDimension = (ta.rsi(close, rsiPeriod) - 50.0) * 2.0
+stochRaw = ta.stoch(close, high, low, stochPeriod)
+stochDimension = (stochRaw - 50.0) * 2.0
+rocRaw = ta.roc(close, rocPeriod)
+rocScale = ta.stdev(rocRaw, regressionPeriod)
+rocDimension = f_signed_norm(rocRaw, nz(rocScale, 1.0) * 2.0)
+regression = ta.linreg(close, regressionPeriod, 0)
+regressionPrior = ta.linreg(close, regressionPeriod, 1)
+regressionSlope = regression - regressionPrior
+regDimension = f_signed_norm(regressionSlope, atr / regressionPeriod)
+cloudDimension = close > cloudTop ? 100.0 : close < cloudBottom ? -100.0 : f_signed_norm(close - (cloudTop + cloudBottom) * 0.5, math.max(cloudTop - cloudBottom, syminfo.mintick))
+compositeRaw = (rsiDimension + stochDimension + rocDimension + regDimension + cloudDimension) / 5.0
+composite = ta.ema(compositeRaw, oscSmoothPeriod)
+signal = ta.ema(composite, oscSmoothPeriod)
+dimensionSpread = composite - signal
+
+// Canonical Adam pressure engine.
+// m_t = beta1 * m_(t-1) + (1 - beta1) * gradient
+// v_t = beta2 * v_(t-1) + (1 - beta2) * gradient^2
+gradient = f_signed_norm(close - regression, atr) * 0.01
+var float adamM = 0.0
+var float adamV = 0.0
+var int adamT = 0
+adamT += 1
+adamM := adamBeta1 * adamM + (1.0 - adamBeta1) * gradient
+adamV := adamBeta2 * adamV + (1.0 - adamBeta2) * gradient * gradient
+adamMCorrected = adamM / math.max(1.0 - math.pow(adamBeta1, adamT), adamEpsilon)
+adamVCorrected = adamV / math.max(1.0 - math.pow(adamBeta2, adamT), adamEpsilon)
+adamPressureRaw = adamMCorrected / (math.sqrt(adamVCorrected) + adamEpsilon)
+adamPressure = f_clamp(adamPressureRaw, -4.0, 4.0)
+
+// The field breathes with ATR, Adam pressure and a 26-bar Time Theory phase.
+timePhase = 2.0 * math.pi * (bar_index % 26) / 26.0
+wavePulse = math.sin(timePhase) * atr * 0.10
+reversionBasisRaw = ta.ema(hlc3, reversionPeriod) + wavePulse
+reversionBasis = ta.ema(reversionBasisRaw, reversionSmoothPeriod)
+volatilityBase = ta.ema(atr, reversionPeriod)
+adaptiveVolatility = volatilityBase * (1.0 + math.abs(adamPressure) * math.abs(adamGain))
+railStep = adaptiveVolatility * math.abs(reversionStep)
+railUpper4 = reversionBasis + railStep * 2.0
+railUpper3 = reversionBasis + railStep * 1.5
+railUpper2 = reversionBasis + railStep
+railUpper1 = reversionBasis + railStep * 0.5
+railLower1 = reversionBasis - railStep * 0.5
+railLower2 = reversionBasis - railStep
+railLower3 = reversionBasis - railStep * 1.5
+railLower4 = reversionBasis - railStep * 2.0
+
+rangeHigh = nz(lastSwingHigh, ta.highest(high, kijunPeriod))
+rangeLow = nz(lastSwingLow, ta.lowest(low, kijunPeriod))
+rangeSpan = math.max(rangeHigh - rangeLow, syminfo.mintick)
+grid25 = rangeLow + rangeSpan * 0.25
+grid50 = rangeLow + rangeSpan * 0.50
+grid75 = rangeLow + rangeSpan * 0.75
+
+bandWidth = (railUpper4 - railLower4) / math.max(reversionBasis, syminfo.mintick)
+bandWidthBase = ta.ema(bandWidth, reversionPeriod)
+volatilitySqueeze = bandWidth < bandWidthBase * 0.80
+volatilityRelease = bandWidth > bandWidthBase and bandWidth[1] <= bandWidthBase[1]
+
+cloudBull = close > cloudTop and tenkan > kijun and futureBull
+cloudBear = close < cloudBottom and tenkan < kijun and not futureBull
+breakoutLong = close > nz(lastSwingHigh, high) and composite > breakoutBand and dimensionSpread > 0 and adamPressure > 0 and not volatilitySqueeze
+breakoutShort = close < nz(lastSwingLow, low) and composite < -breakoutBand and dimensionSpread < 0 and adamPressure < 0 and not volatilitySqueeze
+reversionLong = low <= railLower3 and composite[1] < -reversionBand and ta.crossover(composite, signal) and adamPressure > adamPressure[1]
+reversionShort = high >= railUpper3 and composite[1] > reversionBand and ta.crossunder(composite, signal) and adamPressure < adamPressure[1]
+
+longCloudScore = cloudBull ? 20.0 : 0.0
+longGoldenScore = goldBull ? 15.0 : 0.0
+longStructureScore = bullStructure ? 15.0 : 0.0
+longTimeScore = bullTimeWave ? 10.0 : 0.0
+longWaveScore = bullImpulseWave ? 10.0 : 0.0
+longFvgScore = not na(activeBullTop) ? 10.0 : 0.0
+longCompositeScore = composite > signal ? 10.0 : 0.0
+longTenkanScore = tenkan > kijun ? 5.0 : 0.0
+longAdamScore = adamPressure > 0 ? 5.0 : 0.0
+longScore = longCloudScore + longGoldenScore + longStructureScore + longTimeScore + longWaveScore + longFvgScore + longCompositeScore + longTenkanScore + longAdamScore
+
+shortCloudScore = cloudBear ? 20.0 : 0.0
+shortGoldenScore = goldBear ? 15.0 : 0.0
+shortStructureScore = bearStructure ? 15.0 : 0.0
+shortTimeScore = bearTimeWave ? 10.0 : 0.0
+shortWaveScore = bearImpulseWave ? 10.0 : 0.0
+shortFvgScore = not na(activeBearTop) ? 10.0 : 0.0
+shortCompositeScore = composite < signal ? 10.0 : 0.0
+shortTenkanScore = tenkan < kijun ? 5.0 : 0.0
+shortAdamScore = adamPressure < 0 ? 5.0 : 0.0
+shortScore = shortCloudScore + shortGoldenScore + shortStructureScore + shortTimeScore + shortWaveScore + shortFvgScore + shortCompositeScore + shortTenkanScore + shortAdamScore
+
+useBreakout = tradeMode == "Breakout" or tradeMode == "Breakout + Reversion"
+useReversion = tradeMode == "Reversion" or tradeMode == "Breakout + Reversion"
+longTrigger = (useBreakout and breakoutLong) or (useReversion and reversionLong)
+shortTrigger = (useBreakout and breakoutShort) or (useReversion and reversionShort)
+signalReady = not closedBarSignals or barstate.isconfirmed
+perfectLong = signalReady and allowLong and longTrigger and longScore >= minimumScore and barsFromLow <= math.abs(swingMemory)
+perfectShort = signalReady and allowShort and shortTrigger and shortScore >= minimumScore and barsFromHigh <= math.abs(swingMemory)
+
+//=============================================================================
+// 05. EXECUTION + RISK
+//=============================================================================
+
+riskFraction = math.abs(riskPercent) * 0.01
+stopMultiple = f_safe_ratio(stopAtr, 1.8)
+targetMultiple = f_safe_ratio(targetAtr, 3.2)
+trailMultiple = f_safe_ratio(trailAtr, 1.2)
+riskCash = strategy.equity * riskFraction
+longStopCandidate = math.min(nz(lastSwingLow, close - atr * stopMultiple), close - atr * stopMultiple)
+shortStopCandidate = math.max(nz(lastSwingHigh, close + atr * stopMultiple), close + atr * stopMultiple)
+longRiskDistance = close - longStopCandidate
+shortRiskDistance = shortStopCandidate - close
+longQuantity = f_qty(riskCash, longRiskDistance)
+shortQuantity = f_qty(riskCash, shortRiskDistance)
+
+var float longStop = na
+var float longTarget = na
+var float shortStop = na
+var float shortTarget = na
+
+if perfectLong and strategy.position_size <= 0
+    longStop := longStopCandidate
+    longTarget := close + atr * targetMultiple
+    strategy.entry("Perfect Long", strategy.long, qty = longQuantity)
+
+if perfectShort and strategy.position_size >= 0
+    shortStop := shortStopCandidate
+    shortTarget := close - atr * targetMultiple
+    strategy.entry("Perfect Short", strategy.short, qty = shortQuantity)
+
+if strategy.position_size > 0
+    strategy.exit(
+        "Long Collect",
+        from_entry = "Perfect Long",
+        stop = longStop,
+        limit = strategy.position_avg_price + atr * math.min(targetMultiple, 1.25),
+        qty_percent = 40
+    )
+    strategy.exit(
+        "Long Runner",
+        from_entry = "Perfect Long",
+        stop = longStop,
+        limit = longTarget,
+        trail_points = atr * trailMultiple / syminfo.mintick,
+        trail_offset = atr * trailMultiple / syminfo.mintick,
+        qty_percent = 60
+    )
+
+if strategy.position_size < 0
+    strategy.exit(
+        "Short Collect",
+        from_entry = "Perfect Short",
+        stop = shortStop,
+        limit = strategy.position_avg_price - atr * math.min(targetMultiple, 1.25),
+        qty_percent = 40
+    )
+    strategy.exit(
+        "Short Runner",
+        from_entry = "Perfect Short",
+        stop = shortStop,
+        limit = shortTarget,
+        trail_points = atr * trailMultiple / syminfo.mintick,
+        trail_offset = atr * trailMultiple / syminfo.mintick,
+        qty_percent = 60
+    )
+
+if strategy.position_size == 0
+    longStop := na
+    longTarget := na
+    shortStop := na
+    shortTarget := na
+
+//=============================================================================
+// 06. FVG / iFVG FIELD REGISTRY
+//=============================================================================
+
+// Parallel fields are the lifecycle source of truth.
+// direction: +1 bullish FVG, -1 bearish FVG.
+// state: 0 active FVG, 1 inverted iFVG, 2 mitigated history.
+var array<float> zoneTops = array.new<float>()
+var array<float> zoneBottoms = array.new<float>()
+var array<float> zoneMids = array.new<float>()
+var array<int> zoneDirections = array.new<int>()
+var array<int> zoneStates = array.new<int>()
+var array<int> zoneBirthBars = array.new<int>()
+var array<float> zoneExpansions = array.new<float>()
+var array<box> zoneBoxes = array.new<box>()
+var array<label> zoneHoverLabels = array.new<label>()
+
+if bullRapidFvg
+    bullTicks = (bullGapTop - bullGapBottom) / syminfo.mintick
+    bullExpansion = body[1] / math.max(atr[1], syminfo.mintick)
+    bullTooltip = "BULLISH RAPID FVG\nTop: " + str.tostring(bullGapTop, format.mintick) + "\nMid: " + str.tostring(bullGapMid, format.mintick) + "\nBottom: " + str.tostring(bullGapBottom, format.mintick) + "\nGap: " + str.tostring(bullTicks, "#.0") + " ticks\nExpansion: " + str.tostring(bullExpansion, "#.00") + " ATR"
+    bullBox = box.new(
+        left = bar_index - 2,
+        top = bullGapTop,
+        right = bar_index,
+        bottom = bullGapBottom,
+        bgcolor = color.new(colorBull, 83),
+        border_color = color.new(colorBull, 28),
+        extend = extendFvg ? extend.right : extend.none,
+        text = "FVG  ·  +" + str.tostring(bullTicks, "#.0") + "t",
+        text_size = size.tiny,
+        text_color = color.new(colorMutedText, 18),
+        text_halign = text.align_right,
+        text_valign = text.align_center,
+        text_wrap = text.wrap_none,
+        text_font_family = font.family_monospace,
+        text_formatting = text.format_italic,
+        force_overlay = true
+    )
+    bullHover = label.new(
+        x = bar_index - 1,
+        y = bullGapMid,
+        text = "◇",
+        xloc = xloc.bar_index,
+        yloc = yloc.price,
+        color = color.new(colorBull, 100),
+        style = label.style_none,
+        textcolor = color.new(colorMutedText, 42),
+        size = size.tiny,
+        tooltip = bullTooltip,
+        text_font_family = font.family_monospace,
+        text_formatting = text.format_italic,
+        force_overlay = true
+    )
+    array.push(zoneTops, bullGapTop)
+    array.push(zoneBottoms, bullGapBottom)
+    array.push(zoneMids, bullGapMid)
+    array.push(zoneDirections, 1)
+    array.push(zoneStates, 0)
+    array.push(zoneBirthBars, bar_index - 2)
+    array.push(zoneExpansions, bullExpansion)
+    array.push(zoneBoxes, bullBox)
+    array.push(zoneHoverLabels, bullHover)
+
+if bearRapidFvg
+    bearTicks = (bearGapTop - bearGapBottom) / syminfo.mintick
+    bearExpansion = body[1] / math.max(atr[1], syminfo.mintick)
+    bearTooltip = "BEARISH RAPID FVG\nTop: " + str.tostring(bearGapTop, format.mintick) + "\nMid: " + str.tostring(bearGapMid, format.mintick) + "\nBottom: " + str.tostring(bearGapBottom, format.mintick) + "\nGap: " + str.tostring(bearTicks, "#.0") + " ticks\nExpansion: " + str.tostring(bearExpansion, "#.00") + " ATR"
+    bearBox = box.new(
+        left = bar_index - 2,
+        top = bearGapTop,
+        right = bar_index,
+        bottom = bearGapBottom,
+        bgcolor = color.new(colorBear, 83),
+        border_color = color.new(colorBear, 28),
+        extend = extendFvg ? extend.right : extend.none,
+        text = "FVG  ·  -" + str.tostring(bearTicks, "#.0") + "t",
+        text_size = size.tiny,
+        text_color = color.new(colorMutedText, 18),
+        text_halign = text.align_right,
+        text_valign = text.align_center,
+        text_wrap = text.wrap_none,
+        text_font_family = font.family_monospace,
+        text_formatting = text.format_italic,
+        force_overlay = true
+    )
+    bearHover = label.new(
+        x = bar_index - 1,
+        y = bearGapMid,
+        text = "◇",
+        xloc = xloc.bar_index,
+        yloc = yloc.price,
+        color = color.new(colorBear, 100),
+        style = label.style_none,
+        textcolor = color.new(colorMutedText, 42),
+        size = size.tiny,
+        tooltip = bearTooltip,
+        text_font_family = font.family_monospace,
+        text_formatting = text.format_italic,
+        force_overlay = true
+    )
+    array.push(zoneTops, bearGapTop)
+    array.push(zoneBottoms, bearGapBottom)
+    array.push(zoneMids, bearGapMid)
+    array.push(zoneDirections, -1)
+    array.push(zoneStates, 0)
+    array.push(zoneBirthBars, bar_index - 2)
+    array.push(zoneExpansions, bearExpansion)
+    array.push(zoneBoxes, bearBox)
+    array.push(zoneHoverLabels, bearHover)
+
+bullInversion = false
+bearInversion = false
+zoneIndex = 0
+
+while zoneIndex < array.size(zoneBoxes)
+    zoneTop = array.get(zoneTops, zoneIndex)
+    zoneBottom = array.get(zoneBottoms, zoneIndex)
+    zoneMid = array.get(zoneMids, zoneIndex)
+    zoneDirection = array.get(zoneDirections, zoneIndex)
+    zoneState = array.get(zoneStates, zoneIndex)
+    zoneExpansion = array.get(zoneExpansions, zoneIndex)
+    zoneBox = array.get(zoneBoxes, zoneIndex)
+    zoneHover = array.get(zoneHoverLabels, zoneIndex)
+    zoneRemove = false
+
+    if zoneState == 0
+        bullZoneInverted = zoneDirection == 1 and close < zoneBottom
+        bearZoneInverted = zoneDirection == -1 and close > zoneTop
+        zoneTouched = zoneDirection == 1 ? low <= zoneTop : high >= zoneBottom
+        zoneMidFilled = zoneDirection == 1 ? low <= zoneMid : high >= zoneMid
+        zoneFullyFilled = zoneDirection == 1 ? low <= zoneBottom : high >= zoneTop
+        zoneMitigated = mitigationMode == "Touch" ? zoneTouched : mitigationMode == "Midpoint" ? zoneMidFilled : zoneFullyFilled
+
+        if bullZoneInverted or bearZoneInverted
+            zoneState := 1
+            array.set(zoneStates, zoneIndex, zoneState)
+            bullInversion := bearZoneInverted
+            bearInversion := bullZoneInverted
+            inversionColor = bullInversion ? colorBull : colorBear
+            box.set_bgcolor(zoneBox, color.new(inversionColor, 86))
+            box.set_border_color(zoneBox, color.new(inversionColor, 8))
+            box.set_border_style(zoneBox, line.style_dashed)
+            box.set_text(zoneBox, bullInversion ? "iFVG  ·  SUPPORT" : "iFVG  ·  RESIST")
+            box.set_text_color(zoneBox, color.new(colorMutedText, 8))
+            label.set_text(zoneHover, "◆")
+            label.set_textcolor(zoneHover, color.new(inversionColor, 20))
+            label.set_tooltip(zoneHover, (bullInversion ? "BULLISH" : "BEARISH") + " iFVG\nOriginal direction inverted by a confirmed close.\nTop: " + str.tostring(zoneTop, format.mintick) + "\nMid: " + str.tostring(zoneMid, format.mintick) + "\nBottom: " + str.tostring(zoneBottom, format.mintick))
+        else if zoneMitigated
+            zoneState := 2
+            array.set(zoneStates, zoneIndex, zoneState)
+            box.set_extend(zoneBox, extend.none)
+            box.set_right(zoneBox, bar_index)
+            box.set_bgcolor(zoneBox, color.new(colorNeutral, 93))
+            box.set_border_color(zoneBox, color.new(colorNeutral, 72))
+            box.set_text(zoneBox, "MITIGATED")
+            box.set_text_color(zoneBox, color.new(colorMutedText, 58))
+            label.set_textcolor(zoneHover, color.new(colorMutedText, 70))
+            label.set_tooltip(zoneHover, "MITIGATED FVG HISTORY\nCompletion bar: " + str.tostring(bar_index) + "\nEquilibrium: " + str.tostring(zoneMid, format.mintick))
+            zoneRemove := not retainMitigated
+
+    else if zoneState == 1
+        inversionDirection = zoneDirection == 1 ? -1 : 1
+        inversionInvalid = inversionDirection == 1 ? close < zoneBottom : close > zoneTop
+        if inversionInvalid
+            zoneState := 2
+            array.set(zoneStates, zoneIndex, zoneState)
+            box.set_extend(zoneBox, extend.none)
+            box.set_right(zoneBox, bar_index)
+            box.set_bgcolor(zoneBox, color.new(colorNeutral, 94))
+            box.set_text(zoneBox, "iFVG  ·  COMPLETE")
+            box.set_text_color(zoneBox, color.new(colorMutedText, 65))
+            label.set_textcolor(zoneHover, color.new(colorMutedText, 75))
+            label.set_tooltip(zoneHover, "COMPLETED iFVG HISTORY\nCompletion bar: " + str.tostring(bar_index))
+            zoneRemove := not retainMitigated
+
+    if zoneState < 2
+        box.set_right(zoneBox, bar_index)
+        borderWidth = int(f_clamp(math.round(zoneExpansion), 1.0, 4.0))
+        box.set_border_width(zoneBox, borderWidth)
+
+    if zoneRemove
+        box.delete(zoneBox)
+        label.delete(zoneHover)
+        array.remove(zoneTops, zoneIndex)
+        array.remove(zoneBottoms, zoneIndex)
+        array.remove(zoneMids, zoneIndex)
+        array.remove(zoneDirections, zoneIndex)
+        array.remove(zoneStates, zoneIndex)
+        array.remove(zoneBirthBars, zoneIndex)
+        array.remove(zoneExpansions, zoneIndex)
+        array.remove(zoneBoxes, zoneIndex)
+        array.remove(zoneHoverLabels, zoneIndex)
+    else
+        zoneIndex += 1
+
+// Runtime cap protects the shared label budget: 130 zone hover anchors,
+// 56 Time Theory, 24 execution and 24 event labels remain below 240.
+zoneLimit = math.min(130, math.max(0, math.abs(fvgQuantity)))
+while array.size(zoneBoxes) > zoneLimit
+    retiredBox = array.shift(zoneBoxes)
+    retiredHover = array.shift(zoneHoverLabels)
+    box.delete(retiredBox)
+    label.delete(retiredHover)
+    array.shift(zoneTops)
+    array.shift(zoneBottoms)
+    array.shift(zoneMids)
+    array.shift(zoneDirections)
+    array.shift(zoneStates)
+    array.shift(zoneBirthBars)
+    array.shift(zoneExpansions)
+
+//=============================================================================
+// 07. PRICE-CHART AREA RENDERER
+//=============================================================================
+
+pSpanA = plot(showCloud ? spanA : na, "Senkou Span A · navigation", color = color.new(colorBull, 22), offset = displacement, linewidth = 1, force_overlay = true, linestyle = plot.linestyle_dotted)
+pSpanB = plot(showCloud ? spanB : na, "Senkou Span B · structure", color = color.new(colorBear, 22), offset = displacement, linewidth = 1, force_overlay = true, linestyle = plot.linestyle_dotted)
+fill(pSpanA, pSpanB, color = showCloud ? color.new(futureBull ? colorBull : colorBear, 84) : na, title = "Projected A/B Cloud")
+
+plot(showArea ? fvgCenter : na, "Rapid FVG Equilibrium", color = colorNeutral, linewidth = 2, style = plot.style_stepline, force_overlay = true)
+
+var line grid25Line = na
+var line grid50Line = na
+var line grid75Line = na
+var line swingHighLine = na
+var line swingLowLine = na
+
+if showGrid
+    if na(grid25Line)
+        grid25Line := line.new(bar_index, grid25, bar_index + 1, grid25, extend = extend.right, color = color.new(colorBull, 76), style = line.style_dotted, force_overlay = true)
+        grid50Line := line.new(bar_index, grid50, bar_index + 1, grid50, extend = extend.right, color = color.new(colorGold, 58), style = line.style_dashed, width = 2, force_overlay = true)
+        grid75Line := line.new(bar_index, grid75, bar_index + 1, grid75, extend = extend.right, color = color.new(colorBear, 76), style = line.style_dotted, force_overlay = true)
+    line.set_xy1(grid25Line, bar_index, grid25)
+    line.set_xy2(grid25Line, bar_index + 1, grid25)
+    line.set_xy1(grid50Line, bar_index, grid50)
+    line.set_xy2(grid50Line, bar_index + 1, grid50)
+    line.set_xy1(grid75Line, bar_index, grid75)
+    line.set_xy2(grid75Line, bar_index + 1, grid75)
+else
+    line.delete(grid25Line)
+    line.delete(grid50Line)
+    line.delete(grid75Line)
+    grid25Line := na
+    grid50Line := na
+    grid75Line := na
+
+if not na(lastSwingHigh)
+    if na(swingHighLine)
+        swingHighLine := line.new(lastSwingHighBar, lastSwingHigh, bar_index + 1, lastSwingHigh, extend = extend.right, color = color.new(colorBear, 45), style = line.style_dashed, force_overlay = true)
+    line.set_xy1(swingHighLine, lastSwingHighBar, lastSwingHigh)
+    line.set_xy2(swingHighLine, bar_index + 1, lastSwingHigh)
+
+if not na(lastSwingLow)
+    if na(swingLowLine)
+        swingLowLine := line.new(lastSwingLowBar, lastSwingLow, bar_index + 1, lastSwingLow, extend = extend.right, color = color.new(colorBull, 45), style = line.style_dashed, force_overlay = true)
+    line.set_xy1(swingLowLine, lastSwingLowBar, lastSwingLow)
+    line.set_xy2(swingLowLine, bar_index + 1, lastSwingLow)
+
+pRailUpper4 = plot(showReversionField ? railUpper4 : na, "Expansion Border Upper · volatility hunt", color = color.new(colorBear, 8), linewidth = 2, force_overlay = true, linestyle = plot.linestyle_dashed)
+pRailUpper3 = plot(showReversionField ? railUpper3 : na, "Reversion Rail Upper 3", color = color.new(colorBear, 38), force_overlay = true, linestyle = plot.linestyle_dotted)
+pRailUpper2 = plot(showReversionField ? railUpper2 : na, "Reversion Rail Upper 2", color = color.new(colorWave, 42), force_overlay = true)
+pRailUpper1 = plot(showReversionField ? railUpper1 : na, "Reversion Rail Upper 1", color = color.new(colorWave, 58), force_overlay = true)
+pRailLower1 = plot(showReversionField ? railLower1 : na, "Reversion Rail Lower 1", color = color.new(colorWave, 58), force_overlay = true)
+pRailLower2 = plot(showReversionField ? railLower2 : na, "Reversion Rail Lower 2", color = color.new(colorWave, 42), force_overlay = true)
+pRailLower3 = plot(showReversionField ? railLower3 : na, "Reversion Rail Lower 3", color = color.new(colorBull, 38), force_overlay = true, linestyle = plot.linestyle_dotted)
+pRailLower4 = plot(showReversionField ? railLower4 : na, "Expansion Border Lower · volatility hunt", color = color.new(colorBull, 8), linewidth = 2, force_overlay = true, linestyle = plot.linestyle_dashed)
+fill(pRailUpper4, pRailUpper3, color = color.new(colorBear, 89), title = "Upper Volatility Hunt Field")
+fill(pRailUpper3, pRailUpper2, color = color.new(colorBear, 92), title = "Upper Reversion Field 3")
+fill(pRailUpper2, pRailUpper1, color = color.new(colorWave, 93), title = "Upper Reversion Field 2")
+fill(pRailUpper1, pRailLower1, color = color.new(colorWave, 91), title = "Mean Navigation Field")
+fill(pRailLower1, pRailLower2, color = color.new(colorWave, 93), title = "Lower Reversion Field 2")
+fill(pRailLower2, pRailLower3, color = color.new(colorBull, 92), title = "Lower Reversion Field 3")
+fill(pRailLower3, pRailLower4, color = color.new(colorBull, 89), title = "Lower Volatility Hunt Field")
+
+plot(tenkan, "Tenkan", color = color.new(colorBull, 0), linewidth = 1, force_overlay = true)
+plot(kijun, "Kijun", color = color.new(colorBear, 0), linewidth = 1, force_overlay = true)
+plot(goldFast, "Golden Fast", color = color.new(colorGold, 5), linewidth = 2, force_overlay = true)
+plot(goldSlow, "Golden Slow", color = color.new(colorNeutral, 30), linewidth = 2, force_overlay = true)
+
+var array<label> executionLabels = array.new<label>()
+
+if perfectLong
+    longTooltip = "PERFECT LONG\nScore: " + str.tostring(longScore, "#.0") + " / 100\nEntry reference: " + str.tostring(close, format.mintick) + "\nStop: " + str.tostring(longStopCandidate, format.mintick) + "\nTarget: " + str.tostring(close + atr * targetMultiple, format.mintick) + "\nAdam pressure: " + str.tostring(adamPressure, "#.000") + "\nWave: " + str.tostring(bullWave)
+    longExecutionLabel = label.new(
+        x = bar_index,
+        y = low - atr * 0.18,
+        text = "LONG  " + str.tostring(longScore, "#"),
+        xloc = xloc.bar_index,
+        yloc = yloc.price,
+        color = color.new(colorBull, 16),
+        style = label.style_label_up,
+        textcolor = color.rgb(15, 23, 42),
+        size = size.tiny,
+        textalign = text.align_center,
+        tooltip = longTooltip,
+        text_font_family = font.family_monospace,
+        text_formatting = text.format_bold,
+        force_overlay = true
+    )
+    array.push(executionLabels, longExecutionLabel)
+
+if perfectShort
+    shortTooltip = "PERFECT SHORT\nScore: " + str.tostring(shortScore, "#.0") + " / 100\nEntry reference: " + str.tostring(close, format.mintick) + "\nStop: " + str.tostring(shortStopCandidate, format.mintick) + "\nTarget: " + str.tostring(close - atr * targetMultiple, format.mintick) + "\nAdam pressure: " + str.tostring(adamPressure, "#.000") + "\nWave: " + str.tostring(bearWave)
+    shortExecutionLabel = label.new(
+        x = bar_index,
+        y = high + atr * 0.18,
+        text = "SHORT  " + str.tostring(shortScore, "#"),
+        xloc = xloc.bar_index,
+        yloc = yloc.price,
+        color = color.new(colorBear, 16),
+        style = label.style_label_down,
+        textcolor = color.white,
+        size = size.tiny,
+        textalign = text.align_center,
+        tooltip = shortTooltip,
+        text_font_family = font.family_monospace,
+        text_formatting = text.format_bold,
+        force_overlay = true
+    )
+    array.push(executionLabels, shortExecutionLabel)
+
+while array.size(executionLabels) > 24
+    retiredExecutionLabel = array.shift(executionLabels)
+    label.delete(retiredExecutionLabel)
+
+var array<label> eventLabels = array.new<label>()
+
+if showPivots and not na(pivotHigh)
+    pivotHighTooltip = "PIVOT HIGH\nPrice: " + str.tostring(pivotHigh, format.mintick) + "\nConfirmed after: " + str.tostring(pivotRightBars) + " bars"
+    array.push(eventLabels, f_event_label(bar_index - pivotRightBars, pivotHigh, "▽", pivotHighTooltip, colorBear))
+
+if showPivots and not na(pivotLow)
+    pivotLowTooltip = "PIVOT LOW\nPrice: " + str.tostring(pivotLow, format.mintick) + "\nConfirmed after: " + str.tostring(pivotRightBars) + " bars"
+    array.push(eventLabels, f_event_label(bar_index - pivotRightBars, pivotLow, "△", pivotLowTooltip, colorBull))
+
+if tenkanBullCross
+    array.push(eventLabels, f_event_label(bar_index, low - atr * 0.10, "●", "BULLISH TENKAN / KIJUN CROSS\nTenkan: " + str.tostring(tenkan, format.mintick) + "\nKijun: " + str.tostring(kijun, format.mintick), colorBull))
+
+if tenkanBearCross
+    array.push(eventLabels, f_event_label(bar_index, high + atr * 0.10, "●", "BEARISH TENKAN / KIJUN CROSS\nTenkan: " + str.tostring(tenkan, format.mintick) + "\nKijun: " + str.tostring(kijun, format.mintick), colorBear))
+
+if goldenCross
+    array.push(eventLabels, f_event_label(bar_index, low - atr * 0.16, "◆", "GOLDEN WAVE CROSS\nFast: " + str.tostring(goldFast, format.mintick) + "\nSlow: " + str.tostring(goldSlow, format.mintick), colorGold))
+
+if deathCross
+    array.push(eventLabels, f_event_label(bar_index, high + atr * 0.16, "◆", "DEATH WAVE CROSS\nFast: " + str.tostring(goldFast, format.mintick) + "\nSlow: " + str.tostring(goldSlow, format.mintick), colorBear))
+
+while array.size(eventLabels) > 24
+    retiredEventLabel = array.shift(eventLabels)
+    label.delete(retiredEventLabel)
+
+
+//=============================================================================
+// 08. PRICE-CHART TIME-WAVE BACKGROUND
+//=============================================================================
+
+bgcolor(timeWave ? color.new(colorGold, 91) : na, title = "Ichimoku Time Wave Window")
+
+//=============================================================================
+// 09. DIAGNOSTICS + ALERTS
+//=============================================================================
+
+var table diagnostics = table.new(position.top_right, 2, 8, bgcolor = color.new(color.rgb(15, 23, 42), 18), frame_color = color.new(colorNeutral, 72), frame_width = 1, border_width = 0)
+
+if barstate.islast
+    table.cell(diagnostics, 0, 0, "FIELD", text_color = color.new(colorMutedText, 32), text_size = size.tiny, text_font_family = font.family_monospace)
+    table.cell(diagnostics, 1, 0, "STATE", text_color = color.new(colorMutedText, 32), text_size = size.tiny, text_font_family = font.family_monospace)
+    table.cell(diagnostics, 0, 1, "PROFILE", text_color = colorMutedText, text_size = size.tiny, text_font_family = font.family_monospace)
+    table.cell(diagnostics, 1, 1, lengthProfile + "  " + str.tostring(tenkanPeriod) + "/" + str.tostring(kijunPeriod) + "/" + str.tostring(spanBPeriod), text_color = color.white, text_size = size.tiny, text_font_family = font.family_monospace)
+    table.cell(diagnostics, 0, 2, "LONG", text_color = colorMutedText, text_size = size.tiny, text_font_family = font.family_monospace)
+    table.cell(diagnostics, 1, 2, str.tostring(longScore, "#.0"), text_color = colorBull, text_size = size.tiny, text_font_family = font.family_monospace)
+    table.cell(diagnostics, 0, 3, "SHORT", text_color = colorMutedText, text_size = size.tiny, text_font_family = font.family_monospace)
+    table.cell(diagnostics, 1, 3, str.tostring(shortScore, "#.0"), text_color = colorBear, text_size = size.tiny, text_font_family = font.family_monospace)
+    table.cell(diagnostics, 0, 4, "WAVE", text_color = colorMutedText, text_size = size.tiny, text_font_family = font.family_monospace)
+    table.cell(diagnostics, 1, 4, str.tostring(bullWave) + " / " + str.tostring(bearWave), text_color = colorGold, text_size = size.tiny, text_font_family = font.family_monospace)
+    table.cell(diagnostics, 0, 5, "ADAM", text_color = colorMutedText, text_size = size.tiny, text_font_family = font.family_monospace)
+    table.cell(diagnostics, 1, 5, str.tostring(adamPressure, "#.000"), text_color = adamPressure >= 0 ? colorBull : colorBear, text_size = size.tiny, text_font_family = font.family_monospace)
+    table.cell(diagnostics, 0, 6, "FVG", text_color = colorMutedText, text_size = size.tiny, text_font_family = font.family_monospace)
+    table.cell(diagnostics, 1, 6, str.tostring(array.size(zoneBoxes)), text_color = color.white, text_size = size.tiny, text_font_family = font.family_monospace)
+    table.cell(diagnostics, 0, 7, "WIDTH", text_color = colorMutedText, text_size = size.tiny, text_font_family = font.family_monospace)
+    table.cell(diagnostics, 1, 7, str.tostring(bandWidth * 100.0, "#.00") + "%", text_color = colorWave, text_size = size.tiny, text_font_family = font.family_monospace)
+
+if perfectLong
+    alert("Perfect Long | score " + str.tostring(longScore, "#.0"), alert.freq_once_per_bar_close)
+if perfectShort
+    alert("Perfect Short | score " + str.tostring(shortScore, "#.0"), alert.freq_once_per_bar_close)
+if bullRapidFvg
+    alert("Bullish rapid-expansion FVG", alert.freq_once_per_bar_close)
+if bearRapidFvg
+    alert("Bearish rapid-expansion FVG", alert.freq_once_per_bar_close)
+if bullInversion
+    alert("Bullish iFVG support inversion", alert.freq_once_per_bar_close)
+if bearInversion
+    alert("Bearish iFVG resistance inversion", alert.freq_once_per_bar_close)
+if volatilityRelease
+    alert("Adaptive field volatility release", alert.freq_once_per_bar_close)

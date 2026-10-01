@@ -1,0 +1,7 @@
+{
+  "status": "unverified",
+  "platform": "cTrader Algo Windows or Mac",
+  "sdk_package": "cTrader.Automate 1.0.21",
+  "algo_path": "",
+  "notes": "Fill after the cTrader build. A successful gate also hashes the .algo file."
+}

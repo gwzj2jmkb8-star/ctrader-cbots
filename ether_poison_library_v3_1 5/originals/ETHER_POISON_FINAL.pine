@@ -1,0 +1,224 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © ClassicPotatoChamberXII
+
+//@version=6
+strategy(
+     "ETHER POISON | Final Integrated Entity", 
+     overlay=true, 
+     initial_capital=10000, 
+     default_qty_type=strategy.percent_of_equity, 
+     default_qty_value=95, 
+     commission_type=strategy.commission.percent, 
+     commission_value=0.04, 
+     slippage=1,
+     max_lines_count=500,
+     max_boxes_count=500,
+     max_labels_count=500
+     )
+
+// =============================================================================
+// 00. INTERNAL TYPES & MATH (MERGED LIBRARIES)
+// =============================================================================
+
+// --- Types ---
+enum Toxicity
+    LETHAL = "LETHAL"
+    VIRAL = "VIRAL"
+    DORMANT = "DORMANT"
+    STABLE = "STABLE"
+
+enum EnergyFlow
+    ASCENDING = "ASCENDING"
+    DESCENDING = "DESCENDING"
+    VORTEX = "VORTEX"
+    STATIC = "STATIC"
+
+enum Permission
+    OFFENSIVE = "OFFENSIVE"
+    DEFENSIVE = "DEFENSIVE"
+    WAIT = "WAIT"
+
+type KineticState
+    float magnitude = 0.0
+    Toxicity toxicity = Toxicity.DORMANT
+    EnergyFlow flow = EnergyFlow.STATIC
+    float conviction = 0.0
+
+// --- Math Functions ---
+f_clamp(float value, float low, float high) =>
+    math.max(low, math.min(high, value))
+
+f_safeDiv(float numerator, float denominator, float epsilon = 1e-6) =>
+    numerator / (math.abs(denominator) < epsilon ? epsilon : denominator)
+
+f_kinetic_sat(float value, float scale) =>
+    float absVal = math.abs(value)
+    float normalized = absVal / math.max(scale, 1e-6)
+    float saturated = math.tan(f_clamp(normalized * (math.pi / 4), 0.0, math.pi / 4))
+    f_clamp(saturated, 0.0, 1.0)
+
+// =============================================================================
+// 01. USER INPUT MATRIX
+// =============================================================================
+var string G_CORE = "CORE: Kinetic & Toxicity"
+i_scale = input.float(2.5, "Saturation Horizon", group=G_CORE)
+i_thL = input.float(0.85, "Lethal Threshold", group=G_CORE)
+i_thV = input.float(0.60, "Viral Threshold", group=G_CORE)
+
+var string G_SPACE = "SPACE: Spatial Gates"
+i_fvg = input.float(0.5, "Min FVG Size (ATR x)", group=G_SPACE)
+i_lb = input.int(5, "Structure Lookback", group=G_SPACE)
+i_choch = input.float(1.2, "CHoCH Magnitude", group=G_SPACE)
+
+var string G_RESCUE = "SURVIVAL: Rescue Engine"
+i_min_dist = input.float(1.5, "Min Adverse Dist (ATR x)", group=G_RESCUE)
+i_t_avg = input.float(0.5, "Target Avg Offset", group=G_RESCUE)
+i_max_cyc = input.int(3, "Max Rescue Cycles", group=G_RESCUE)
+
+var string G_VIS = "EXPERIENCE: Nocturne Render"
+show_cockpit = input.bool(true, "Enable HoloVR Cockpit", group=G_VIS)
+show_ichimoku = input.bool(true, "Enable Ichimoku Void", group=G_VIS)
+show_waves = input.bool(true, "Enable Time-Wave Grid", group=G_VIS)
+
+// =============================================================================
+// 02. THE ENGINE LOGIC (MODULAR SHARDS)
+// =============================================================================
+
+// --- [SHARD 01: KINETIC CORE] ---
+f_get_kinetic_state(float src, float scale, float thL, float thV) =>
+    float change = src - src[14]
+    float vol = ta.atr(14)
+    float raw_mag = math.abs(change) / math.max(vol, syminfo.mintick)
+    float mag = f_kinetic_sat(raw_mag, scale)
+    
+    Toxicity tox = mag >= thL ? Toxicity.LETHAL : mag >= thV ? Toxicity.VIRAL : mag > 0.1 ? Toxicity.DORMANT : Toxicity.STABLE
+    EnergyFlow flow = src > src[14] ? EnergyFlow.ASCENDING : src < src[14] ? EnergyFlow.DESCENDING : EnergyFlow.STATIC
+    
+    KineticState.new(mag, tox, flow, mag * (tox == Toxicity.LETHAL ? 1.0 : 0.5))
+
+// --- [SHARD 02: SPATIAL GATES] ---
+f_get_spatial_permission(float fvg_min, int lookback, float choch_th) =>
+    float atr = ta.atr(14)
+    bool bull_fvg = low[0] > high[2] and (low[0] - high[2]) > (fvg_min * atr)
+    bool bear_fvg = high[0] < low[2] and (low[2] - high[0]) > (fvg_min * atr)
+    
+    float ph = ta.pivothigh(lookback, lookback)
+    float pl = ta.pivotlow(lookback, lookback)
+    var float lastH = na
+    var float lastL = na
+    if not na(ph)
+        lastH := ph
+    if not na(pl)
+        lastL := pl
+    
+    bool bosBull = close > lastH
+    bool bosBear = close < lastL
+    bool chochBull = close > lastH and (close - lastH) > (choch_th * atr)
+    bool chochBear = close < lastL and (lastL - close) > (choch_th * atr)
+    
+    bool longOK = bull_fvg and (bosBull or chochBull)
+    bool shortOK = bear_fvg and (bosBear or chochBear)
+    longOK ? Permission.OFFENSIVE : shortOK ? Permission.DEFENSIVE : Permission.WAIT
+
+// --- [SHARD 03: RESCUE ENGINE] ---
+f_handle_rescue(float entry, float qty, bool isLong, float min_dist, float target_avg, int max_cycles) =>
+    var int cycles = 0
+    float atr = ta.atr(14)
+    float dist = isLong ? (entry - close) : (close - entry)
+    float resQty = 0.0
+    
+    if dist > (min_dist * atr) and cycles < max_cycles
+        float rescue_price = close
+        float t_avg = isLong ? rescue_price + (target_avg * syminfo.mintick) : rescue_price - (target_avg * syminfo.mintick)
+        float denom = isLong ? (t_avg - rescue_price) : (rescue_price - t_avg)
+        float num = isLong ? qty * (entry - t_avg) : qty * (t_avg - entry)
+        resQty := (denom > 0 and num > 0) ? num / denom : 0.0
+        cycles := cycles + 1
+    [resQty, cycles]
+
+// =============================================================================
+// 03. MAIN ORCHESTRATION
+// =============================================================================
+
+// 1. Calculate Energy
+KineticState kState = f_get_kinetic_state(close, i_scale, i_thL, i_thV)
+
+// 2. Check Geometry
+Permission sPerm = f_get_spatial_permission(i_fvg, i_lb, i_choch)
+
+// 3. Strategy Entry
+if sPerm == Permission.OFFENSIVE and kState.toxicity == Toxicity.LETHAL
+    strategy.entry("Long lETHAL", strategy.long)
+
+if sPerm == Permission.DEFENSIVE and kState.toxicity == Toxicity.LETHAL
+    strategy.entry("Short lETHAL", strategy.short)
+
+// 4. Rescue Logic
+if strategy.position_size != 0
+    bool isLong = strategy.position_size > 0
+    [addQty, cyc] = f_handle_rescue(strategy.position_avg_price, math.abs(strategy.position_size), isLong, i_min_dist, i_t_avg, i_max_cyc)
+    if addQty > 0
+        strategy.entry("Rescue", isLong ? strategy.long : strategy.short, qty=addQty)
+
+// 5. Tactical Harvest (Exit on Exhaustion)
+if strategy.position_size != 0 and kState.magnitude < 0.3
+    strategy.close_all(comment="ENERGY EXHAUSTION")
+
+// =============================================================================
+// 04. NOCTURNE RENDER ENGINE (VISUALS)
+// =============================================================================
+
+// Palette
+color C_VOID = color.rgb(5, 5, 15)
+color C_POISON = color.rgb(0, 255, 128, 20)
+color C_BLOOD = color.rgb(159, 18, 60, 20)
+color C_ETHER = color.rgb(20, 184, 166, 30)
+color C_GHOST = color.rgb(200, 200, 255, 70)
+
+// Background Tint
+bgcolor(kState.toxicity == Toxicity.LETHAL ? color.new(C_POISON, 90) : kState.toxicity == Toxicity.VIRAL ? color.new(C_ETHER, 90) : na)
+
+// --- [HOLOVR ICHIMOKU VOID] ---
+if show_ichimoku
+    float tenkan = (ta.highest(high, 9) + ta.lowest(low, 9)) / 2
+    float kijun  = (ta.highest(high, 26) + ta.lowest(low, 26)) / 2
+    float spanA  = (tenkan + kijun) / 2
+    float spanB  = (ta.highest(high, 52) + ta.lowest(low, 52)) / 2
+    
+    float shiftedSpanA = spanA[26]
+    float shiftedSpanB = spanB[26]
+    
+    pA = plot(shiftedSpanA, color=color.new(C_ETHER, 60), title="Void Span A")
+    pB = plot(shiftedSpanB, color=color.new(C_VOID, 60), title="Void Span B")
+    fill(pA, pB, color = shiftedSpanA > shiftedSpanB ? color.new(C_ETHER, 80) : color.new(C_BLOOD, 80))
+
+// --- [TIME WAVE GRID & SIGNS] ---
+if show_waves
+    float wave_val = ta.sma(math.abs(close - close[1]), 21)
+    float grid_line = ta.vwap
+    
+    if kState.toxicity == Toxicity.LETHAL
+        label.new(bar_index, high, "⚡", color=color.new(color.white, 100), textcolor=C_POISON, style=label.style_label_down, size=size.small)
+    
+    plot(grid_line, color=color.new(C_GHOST, 70), style=plot.style_stepline, title="Time Rail")
+
+// --- [DUAL-SPAN PROXIMITY CLOUD] ---
+float proxA = (ta.highest(high, 9) + ta.lowest(low, 9)) / 2
+float proxB = (ta.highest(high, 26) + ta.lowest(low, 26)) / 2
+pProx1 = plot(proxA, color=color.new(C_ETHER, 80), title="Accumulation Span")
+pProx2 = plot(proxB, color=color.new(C_VOID, 80), title="Distribution Span")
+fill(pProx1, pProx2, color=kState.toxicity == Toxicity.LETHAL ? C_POISON : C_VOID)
+
+// --- [HOLOVR COCKPIT] ---
+if show_cockpit and barstate.islast
+    var table cockpit = table.new(position.top_right, 2, 5, bgcolor=C_VOID, border_width=1, border_color=color.gray)
+    table.cell(cockpit, 0, 0, "ETHER", text_color=color.white)
+    table.cell(cockpit, 1, 0, "POISON", text_color=C_POISON)
+    table.cell(cockpit, 0, 1, "TOXICITY", text_color=color.white)
+    table.cell(cockpit, 1, 1, str.tostring(kState.toxicity), bgcolor=kState.toxicity == Toxicity.LETHAL ? C_POISON : C_ETHER)
+    table.cell(cockpit, 0, 2, "FLOW", text_color=color.white)
+    table.cell(cockpit, 1, 2, str.tostring(kState.flow), text_color=C_ETHER)
+    table.cell(cockpit, 0, 3, "PERMIT", text_color=color.white)
+    table.cell(cockpit, 1, 3, str.tostring(sPerm), text_color=sPerm == Permission.OFFENSIVE ? C_POISON : C_BLOOD)
+    table.cell(cockpit, 0, 4, "CONV", text_color=color.white)
+    table.cell(cockpit, 1, 4, str.tostring(kState.conviction * 100, "#.0") + "%", text_color=color.white)

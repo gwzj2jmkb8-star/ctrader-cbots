@@ -1,0 +1,226 @@
+//@version=6
+indicator(
+    "Ichimoku Time Theory • Adam 5D Oscillator Companion",
+    shorttitle = "ITT Adam 5D",
+    overlay = false,
+    precision = 2
+)
+
+// Companion for the matching chart strategy. Keep the length profile and
+// custom settings aligned between both scripts.
+
+//=============================================================================
+// 01. INPUTS
+//=============================================================================
+
+groupProfile = "01 • Shared Length Profile"
+lengthProfile = input.string("Classic", "Length profile", options = ["Rapid", "Classic", "Position", "Custom"], tooltip = "Match the profile used by the chart strategy. Rapid: 6 / 18 / 36\nClassic: 9 / 26 / 52\nPosition: 18 / 52 / 104", group = groupProfile)
+customLengths = lengthProfile == "Custom"
+tenkanLen = input.int(9, "Tenkan", tooltip = "Custom conversion-line lookback. Runtime protection permits unrestricted panel input.", inline = "ichi1", group = groupProfile, active = customLengths)
+kijunLen = input.int(26, "Kijun", tooltip = "Custom base-line lookback.", inline = "ichi1", group = groupProfile, active = customLengths)
+spanBLen = input.int(52, "Span B", tooltip = "Custom slow-cloud lookback.", inline = "ichi2", group = groupProfile, active = customLengths)
+atrLen = input.int(14, "ATR", tooltip = "Match the chart strategy volatility length.", inline = "ichi2", group = groupProfile)
+
+groupDimensions = "02 • Five-Dimensional Engine"
+rsiLen = input.int(14, "RSI", tooltip = "Momentum dimension length.", inline = "mom", group = groupDimensions)
+stochLen = input.int(14, "Stochastic", tooltip = "Range-position dimension length.", inline = "mom", group = groupDimensions)
+rocLen = input.int(9, "ROC", tooltip = "Rate-of-change dimension length.", inline = "trend", group = groupDimensions)
+regLen = input.int(34, "Regression", tooltip = "Slope and dispersion normalization length.", inline = "trend", group = groupDimensions)
+oscSmooth = input.int(5, "Composite smooth", tooltip = "EMA smoothing used for both the composite and signal line.", group = groupDimensions)
+breakoutBand = input.float(42.0, "Breakout", step = 1.0, tooltip = "Outer momentum threshold.", inline = "bands", group = groupDimensions)
+reversionBand = input.float(68.0, "Reversion", step = 1.0, tooltip = "Exhaustion threshold used for snap-back detection.", inline = "bands", group = groupDimensions)
+showDimensions = input.bool(false, "Muted dimensions", tooltip = "Expose the five source dimensions for hover inspection without overpowering the composite.", group = groupDimensions)
+
+groupAdam = "03 • Adam Pressure"
+adamBeta1Input = input.float(0.90, "β1", step = 0.01, tooltip = "First-moment memory.", inline = "adam", group = groupAdam)
+adamBeta2Input = input.float(0.999, "β2", step = 0.001, tooltip = "Second-moment memory.", inline = "adam", group = groupAdam)
+adamEpsilonInput = input.float(0.000001, "ε", step = 0.000001, tooltip = "Bias-correction stabilizer.", inline = "adam", group = groupAdam)
+adamScale = input.float(25.0, "Display scale", step = 1.0, tooltip = "Visual scale only; it does not alter the canonical Adam pressure calculation.", group = groupAdam)
+
+groupTime = "04 • Time Theory"
+pivotLeft = input.int(5, "Pivot left", tooltip = "Bars left of a confirmed swing.", inline = "pivot", group = groupTime)
+pivotRight = input.int(5, "Pivot right", tooltip = "Confirmation bars; signals never inspect beyond this confirmation.", inline = "pivot", group = groupTime)
+timeTolerance = input.int(1, "Window tolerance", tooltip = "Bars around Kihon Suchi counts 9, 17, 26, 33, 42, 65 and 76.", group = groupTime)
+shadeTimeWaves = input.bool(true, "Time-wave windows", tooltip = "Gold pane wash during active Kihon Suchi windows.", group = groupTime)
+
+colorBull = input.color(color.rgb(0, 220, 170), "Bull", group = "05 • Palette")
+colorBear = input.color(color.rgb(255, 72, 106), "Bear", group = "05 • Palette")
+colorGold = input.color(color.rgb(255, 193, 7), "Signal / Gold", group = "05 • Palette")
+colorAdam = input.color(color.rgb(255, 145, 0), "Adam", group = "05 • Palette")
+colorNeutral = input.color(color.rgb(116, 128, 154), "Neutral", group = "05 • Palette")
+colorMuted = input.color(color.rgb(148, 163, 184), "Muted", group = "05 • Palette")
+
+//=============================================================================
+// 02. SAFE SCALARS + SIMPLE LENGTHS
+//=============================================================================
+
+f_clamp(float value, float floor, float ceiling) =>
+    math.max(floor, math.min(ceiling, value))
+
+f_signed_norm(float value, float scale) =>
+    scale == 0.0 ? 0.0 : f_clamp(100.0 * value / scale, -100.0, 100.0)
+
+f_safe_ratio(float value, float fallback) =>
+    na(value) or value == 0.0 ? fallback : math.abs(value)
+
+f_time_hit(int age, int tolerance) =>
+    hit09 = math.abs(age - 9) <= tolerance
+    hit17 = math.abs(age - 17) <= tolerance
+    hit26 = math.abs(age - 26) <= tolerance
+    hit33 = math.abs(age - 33) <= tolerance
+    hit42 = math.abs(age - 42) <= tolerance
+    hit65 = math.abs(age - 65) <= tolerance
+    hit76 = math.abs(age - 76) <= tolerance
+    hit09 or hit17 or hit26 or hit33 or hit42 or hit65 or hit76
+
+profileTenkan = lengthProfile == "Rapid" ? 6 : lengthProfile == "Position" ? 18 : 9
+profileKijun = lengthProfile == "Rapid" ? 18 : lengthProfile == "Position" ? 52 : 26
+profileSpanB = lengthProfile == "Rapid" ? 36 : lengthProfile == "Position" ? 104 : 52
+simple int customTenkanPeriod = math.max(1, math.abs(tenkanLen))
+simple int customKijunPeriod = math.max(1, math.abs(kijunLen))
+simple int customSpanBPeriod = math.max(1, math.abs(spanBLen))
+simple int tenkanPeriod = customLengths ? customTenkanPeriod : profileTenkan
+simple int kijunPeriod = customLengths ? customKijunPeriod : profileKijun
+simple int spanBPeriod = customLengths ? customSpanBPeriod : profileSpanB
+simple int atrPeriod = math.max(1, math.abs(atrLen))
+simple int rsiPeriod = math.max(1, math.abs(rsiLen))
+simple int stochPeriod = math.max(1, math.abs(stochLen))
+simple int rocPeriod = math.max(1, math.abs(rocLen))
+simple int regressionPeriod = math.max(1, math.abs(regLen))
+simple int oscSmoothPeriod = math.max(1, math.abs(oscSmooth))
+simple int pivotLeftBars = math.max(1, math.abs(pivotLeft))
+simple int pivotRightBars = math.max(1, math.abs(pivotRight))
+adamBeta1 = f_clamp(math.abs(adamBeta1Input), 0.0, 0.999999)
+adamBeta2 = f_clamp(math.abs(adamBeta2Input), 0.0, 0.999999)
+adamEpsilon = f_safe_ratio(adamEpsilonInput, 0.000001)
+safeBreakoutBand = math.abs(breakoutBand)
+safeReversionBand = math.abs(reversionBand)
+
+//=============================================================================
+// 03. MATCHED ICHIMOKU + FIVE DIMENSIONS
+//=============================================================================
+
+tenkanHighest = ta.highest(high, tenkanPeriod)
+tenkanLowest = ta.lowest(low, tenkanPeriod)
+tenkan = (tenkanHighest + tenkanLowest) * 0.5
+kijunHighest = ta.highest(high, kijunPeriod)
+kijunLowest = ta.lowest(low, kijunPeriod)
+kijun = (kijunHighest + kijunLowest) * 0.5
+spanA = (tenkan + kijun) * 0.5
+spanBHighest = ta.highest(high, spanBPeriod)
+spanBLowest = ta.lowest(low, spanBPeriod)
+spanB = (spanBHighest + spanBLowest) * 0.5
+cloudTop = math.max(spanA, spanB)
+cloudBottom = math.min(spanA, spanB)
+cloudCenter = (cloudTop + cloudBottom) * 0.5
+cloudWidth = math.max(cloudTop - cloudBottom, syminfo.mintick)
+atr = ta.atr(atrPeriod)
+
+rsiDimension = (ta.rsi(close, rsiPeriod) - 50.0) * 2.0
+stochRaw = ta.stoch(close, high, low, stochPeriod)
+stochDimension = (stochRaw - 50.0) * 2.0
+rocRaw = ta.roc(close, rocPeriod)
+rocScale = ta.stdev(rocRaw, regressionPeriod)
+rocDimension = f_signed_norm(rocRaw, nz(rocScale, 1.0) * 2.0)
+regression = ta.linreg(close, regressionPeriod, 0)
+regressionPrior = ta.linreg(close, regressionPeriod, 1)
+regressionSlope = regression - regressionPrior
+regDimension = f_signed_norm(regressionSlope, atr / regressionPeriod)
+cloudDimension = close > cloudTop ? 100.0 : close < cloudBottom ? -100.0 : f_signed_norm(close - cloudCenter, cloudWidth)
+compositeRaw = (rsiDimension + stochDimension + rocDimension + regDimension + cloudDimension) / 5.0
+composite = ta.ema(compositeRaw, oscSmoothPeriod)
+signal = ta.ema(composite, oscSmoothPeriod)
+dimensionSpread = composite - signal
+
+//=============================================================================
+// 04. CANONICAL ADAM PRESSURE + TIME WAVES
+//=============================================================================
+
+gradient = f_signed_norm(close - regression, atr) * 0.01
+var float adamM = 0.0
+var float adamV = 0.0
+var int adamT = 0
+adamT += 1
+adamM := adamBeta1 * adamM + (1.0 - adamBeta1) * gradient
+adamV := adamBeta2 * adamV + (1.0 - adamBeta2) * gradient * gradient
+adamMCorrected = adamM / math.max(1.0 - math.pow(adamBeta1, adamT), adamEpsilon)
+adamVCorrected = adamV / math.max(1.0 - math.pow(adamBeta2, adamT), adamEpsilon)
+adamPressureRaw = adamMCorrected / (math.sqrt(adamVCorrected) + adamEpsilon)
+adamPressure = f_clamp(adamPressureRaw, -4.0, 4.0)
+adamDisplay = adamPressure * math.abs(adamScale)
+
+pivotHigh = ta.pivothigh(high, pivotLeftBars, pivotRightBars)
+pivotLow = ta.pivotlow(low, pivotLeftBars, pivotRightBars)
+var int lastSwingHighBar = na
+var int lastSwingLowBar = na
+if not na(pivotHigh)
+    lastSwingHighBar := bar_index - pivotRightBars
+if not na(pivotLow)
+    lastSwingLowBar := bar_index - pivotRightBars
+barsFromHigh = na(lastSwingHighBar) ? 100000 : bar_index - lastSwingHighBar
+barsFromLow = na(lastSwingLowBar) ? 100000 : bar_index - lastSwingLowBar
+bullTimeWave = f_time_hit(barsFromLow, math.abs(timeTolerance))
+bearTimeWave = f_time_hit(barsFromHigh, math.abs(timeTolerance))
+timeWave = bullTimeWave or bearTimeWave
+
+bullBreakout = ta.crossover(composite, safeBreakoutBand) and dimensionSpread > 0.0 and adamPressure > 0.0
+bearBreakout = ta.crossunder(composite, -safeBreakoutBand) and dimensionSpread < 0.0 and adamPressure < 0.0
+bullReversion = composite[1] < -safeReversionBand and ta.crossover(composite, signal) and adamPressure > adamPressure[1]
+bearReversion = composite[1] > safeReversionBand and ta.crossunder(composite, signal) and adamPressure < adamPressure[1]
+
+//=============================================================================
+// 05. LOWER-PANE AREA RENDERER
+//=============================================================================
+
+hline(0.0, "Equilibrium", color = color.new(colorNeutral, 55))
+hline(safeBreakoutBand, "Bull breakout", color = color.new(colorBull, 60), linestyle = hline.style_dashed)
+hline(-safeBreakoutBand, "Bear breakout", color = color.new(colorBear, 60), linestyle = hline.style_dashed)
+hline(safeReversionBand, "Upper reversion", color = color.new(colorGold, 58), linestyle = hline.style_dotted)
+hline(-safeReversionBand, "Lower reversion", color = color.new(colorGold, 58), linestyle = hline.style_dotted)
+
+oscColor = composite >= 0.0 ? colorBull : colorBear
+fieldColor = dimensionSpread >= 0.0 ? color.new(colorBull, 80) : color.new(colorBear, 80)
+pComposite = plot(composite, "5D Composite", color = oscColor, linewidth = 2, style = plot.style_area)
+pSignal = plot(signal, "Composite Signal", color = colorGold, linewidth = 2)
+fill(pComposite, pSignal, color = fieldColor, title = "Breakout / Reversion Pressure")
+plot(adamDisplay, "Adam Pressure", color = colorAdam, linewidth = 2)
+plot(showDimensions ? rsiDimension : na, "RSI Dimension", color = color.new(colorBull, 68), linewidth = 1)
+plot(showDimensions ? stochDimension : na, "Stochastic Dimension", color = color.new(colorGold, 70), linewidth = 1)
+plot(showDimensions ? rocDimension : na, "ROC Dimension", color = color.new(colorBear, 68), linewidth = 1)
+plot(showDimensions ? regDimension : na, "Regression Dimension", color = color.new(colorMuted, 62), linewidth = 1)
+plot(showDimensions ? cloudDimension : na, "Cloud Dimension", color = color.new(color.rgb(102, 126, 234), 62), linewidth = 1)
+bgcolor(shadeTimeWaves and timeWave ? color.new(colorGold, 91) : na, title = "Ichimoku Time Wave Window")
+
+plotchar(bullBreakout, "Bull Breakout", "▲", location.bottom, colorBull, size = size.tiny)
+plotchar(bearBreakout, "Bear Breakout", "▼", location.top, colorBear, size = size.tiny)
+plotchar(bullReversion, "Bull Reversion", "◆", location.bottom, colorGold, size = size.tiny)
+plotchar(bearReversion, "Bear Reversion", "◆", location.top, colorGold, size = size.tiny)
+
+//=============================================================================
+// 06. MUTED DIAGNOSTICS + ALERTS
+//=============================================================================
+
+phaseText = math.abs(composite) > safeReversionBand ? "REVERSION FIELD" : composite > safeBreakoutBand ? "BULL BREAKOUT" : composite < -safeBreakoutBand ? "BEAR BREAKOUT" : "BALANCED"
+phaseColor = math.abs(composite) > safeReversionBand ? colorGold : composite > safeBreakoutBand ? colorBull : composite < -safeBreakoutBand ? colorBear : colorMuted
+var table diagnostics = table.new(position.top_right, 2, 5, bgcolor = color.new(color.rgb(15, 23, 42), 18), frame_color = color.new(colorNeutral, 72), frame_width = 1, border_width = 0)
+
+if barstate.islast
+    table.cell(diagnostics, 0, 0, "FIELD", text_color = color.new(colorMuted, 32), text_size = size.tiny, text_font_family = font.family_monospace)
+    table.cell(diagnostics, 1, 0, "STATE", text_color = color.new(colorMuted, 32), text_size = size.tiny, text_font_family = font.family_monospace)
+    table.cell(diagnostics, 0, 1, "PROFILE", text_color = colorMuted, text_size = size.tiny, text_font_family = font.family_monospace)
+    table.cell(diagnostics, 1, 1, lengthProfile + "  " + str.tostring(tenkanPeriod) + "/" + str.tostring(kijunPeriod) + "/" + str.tostring(spanBPeriod), text_color = color.white, text_size = size.tiny, text_font_family = font.family_monospace)
+    table.cell(diagnostics, 0, 2, "PHASE", text_color = colorMuted, text_size = size.tiny, text_font_family = font.family_monospace)
+    table.cell(diagnostics, 1, 2, phaseText, text_color = phaseColor, text_size = size.tiny, text_font_family = font.family_monospace)
+    table.cell(diagnostics, 0, 3, "ADAM", text_color = colorMuted, text_size = size.tiny, text_font_family = font.family_monospace)
+    table.cell(diagnostics, 1, 3, str.tostring(adamPressure, "#.000"), text_color = adamPressure >= 0.0 ? colorBull : colorBear, text_size = size.tiny, text_font_family = font.family_monospace)
+    table.cell(diagnostics, 0, 4, "TIME", text_color = colorMuted, text_size = size.tiny, text_font_family = font.family_monospace)
+    table.cell(diagnostics, 1, 4, timeWave ? "KIHON WINDOW" : "WAIT", text_color = timeWave ? colorGold : colorMuted, text_size = size.tiny, text_font_family = font.family_monospace)
+
+if bullBreakout
+    alert("Adam 5D bullish breakout", alert.freq_once_per_bar_close)
+if bearBreakout
+    alert("Adam 5D bearish breakout", alert.freq_once_per_bar_close)
+if bullReversion
+    alert("Adam 5D bullish mean reversion", alert.freq_once_per_bar_close)
+if bearReversion
+    alert("Adam 5D bearish mean reversion", alert.freq_once_per_bar_close)

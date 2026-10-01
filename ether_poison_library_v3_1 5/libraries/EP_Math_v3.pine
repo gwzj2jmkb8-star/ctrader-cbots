@@ -1,0 +1,77 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0.
+// © ClassicPotatoChamberXII
+//@version=6
+// @description ETHER numerical kernel v2. Pure functions, no inputs or orders.
+library("EP_Math")
+
+export clamp(float value, float low, float high) =>
+    math.max(low, math.min(high, value))
+
+export safeDiv(float numerator, float denominator, float epsilon = 1e-6) =>
+    float protectedDenominator = math.abs(denominator) < epsilon ? (denominator < 0.0 ? -epsilon : epsilon) : denominator
+    numerator / protectedDenominator
+
+export norm(float value, float scale) =>
+    clamp(safeDiv(value, math.max(math.abs(scale), 1e-6)), -1.0, 1.0)
+
+export robust(float value, float center, float spread, float clampN) =>
+    float z = safeDiv(value - center, spread)
+    clamp(z / math.max(math.abs(clampN), 1e-6), -1.0, 1.0)
+
+// Compatibility name retained from the first ETHER prototype.
+export energyFlux(float value, float center, float spread, float clampN) =>
+    robust(value, center, spread, clampN)
+
+export kinetic(float value, float scale) =>
+    float normalized = math.abs(value) / math.max(math.abs(scale), 1e-6)
+    clamp(math.tan(clamp(normalized, 0.0, 1.0) * math.pi / 4.0), 0.0, 1.0)
+
+export signedKinetic(float value, float scale) =>
+    math.sign(value) * kinetic(value, scale)
+
+export weightedMean(float numerator, float denominator) =>
+    denominator > 0.0 ? numerator / denominator : 0.0
+
+export blend2(float a, float weightA, float b, float weightB) =>
+    weightedMean(a * math.max(weightA, 0.0) + b * math.max(weightB, 0.0), math.max(weightA, 0.0) + math.max(weightB, 0.0))
+
+export blend3(float a, float weightA, float b, float weightB, float c, float weightC) =>
+    float wa = math.max(weightA, 0.0)
+    float wb = math.max(weightB, 0.0)
+    float wc = math.max(weightC, 0.0)
+    weightedMean(a * wa + b * wb + c * wc, wa + wb + wc)
+
+export rangeLocation(float value, float low, float high) =>
+    clamp(safeDiv(value - low, high - low), 0.0, 1.0)
+
+export distanceAtr(float value, float reference, float atr) =>
+    safeDiv(value - reference, math.max(math.abs(atr), 1e-6))
+
+export qtyFromEquityPct(float equity, float percent, float price, float pointValue) =>
+    float unitValue = math.max(price * math.max(pointValue, 1e-6), 1e-6)
+    math.max(equity * math.max(percent, 0.0) * 0.01 / unitValue, 0.0)
+
+// Normalized binary Shannon entropy: 0 = ordered, 1 = maximally uncertain.
+export binaryEntropy(float probability) =>
+    float p = clamp(probability, 1e-6, 1.0 - 1e-6)
+    -(p * math.log(p) + (1.0 - p) * math.log(1.0 - p)) / math.log(2.0)
+
+// Temporal/temperature attenuation used by the cloud multiplexer.
+export tempAtten(float entropy, float temperature, float floorValue) =>
+    float attenuation = math.exp(-math.max(temperature, 0.0) * clamp(entropy, 0.0, 1.0))
+    clamp(attenuation, clamp(floorValue, 0.0, 1.0), 1.0)
+
+export agreement(float a, float b, float c) =>
+    clamp(1.0 - (math.abs(a - b) + math.abs(b - c) + math.abs(a - c)) / 3.0, 0.0, 1.0)
+
+export confidence(float direction, float agreementValue, float inverseEntropy) =>
+    clamp(math.abs(direction) * 0.45 + agreementValue * 0.30 + inverseEntropy * 0.25, 0.0, 1.0)
+
+// Embedded Final variant: its near-zero denominator loses a negative sign.
+// Retained explicitly for historical comparisons; current safeDiv is unchanged.
+export legacySafeDiv(float numerator, float denominator, float epsilon = 1e-6) =>
+    numerator / (math.abs(denominator) < epsilon ? epsilon : denominator)
+
+export legacyKineticSaturation(float value, float scale) =>
+    float normalized = math.abs(value) / math.max(scale, 1e-6)
+    clamp(math.tan(clamp(normalized * math.pi / 4.0, 0.0, math.pi / 4.0)), 0.0, 1.0)

@@ -1,0 +1,5 @@
+case,status,symbol,timeframe,from_utc,to_utc,entry_mode,trade_count,max_drawdown_pct,rejected_operations,risk_close_count,report_path,notes
+baseline,unverified,XAUUSD,H4,,,Market,,,,,,Source parity and normal exits
+limit,unverified,XAUUSD,H4,,,Limit,,,,,,"Pending touch, expiry and protected fill"
+out_of_sample,unverified,XAUUSD,H4,,,Market,,,,,,Unseen date range selected before inspection
+stress,unverified,XAUUSD,H4,,,Market,,,,,,Spread/gap/restart and basket loss close evidence

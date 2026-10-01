@@ -1,0 +1,121 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0.
+// © ClassicPotatoChamberXII
+//@version=6
+// @description FVG cloud mitigation and screening, independent of order eligibility.
+library("EP_CloudScreen")
+
+export type Cloud
+    bool exists = false
+    bool bullish = true
+    int born = na
+    float top = na
+    float bottom = na
+    float remainingTop = na
+    float remainingBottom = na
+    float birthAtr = na
+    float birthRvol = na
+    bool structureAtBirth = false
+    int touchBars = 0
+    int lastTouchBar = na
+    int lastObservedBar = na
+    bool inverted = false
+    bool expired = false
+
+export create() =>
+    Cloud.new()
+
+// A new zone takes over only its own side; the other side remains independently tracked.
+export observe(
+    Cloud cloud,
+    bool bullish,
+    int zoneBar,
+    float top,
+    float bottom,
+    float h,
+    float l,
+    bool inverted,
+    bool ageValid,
+    int bar,
+    float atr,
+    float rvol,
+    bool structureAligned
+) =>
+    if not na(zoneBar) and not na(top) and not na(bottom) and top > bottom
+        if not cloud.exists or cloud.born != zoneBar
+            cloud.exists := true
+            cloud.bullish := bullish
+            cloud.born := zoneBar
+            cloud.top := top
+            cloud.bottom := bottom
+            cloud.remainingTop := top
+            cloud.remainingBottom := bottom
+            cloud.birthAtr := atr
+            cloud.birthRvol := rvol
+            cloud.structureAtBirth := structureAligned
+            cloud.touchBars := 0
+            cloud.lastTouchBar := na
+            cloud.lastObservedBar := na
+        // Skip the formation bar. Updates are idempotent across fill recalculations.
+        if bar > cloud.born and ageValid and not cloud.inverted
+            bool touched = h >= bottom and l <= top
+            if touched and (na(cloud.lastTouchBar) or cloud.lastTouchBar != bar)
+                cloud.touchBars += 1
+                cloud.lastTouchBar := bar
+            if bullish
+                cloud.remainingTop := math.max(bottom, math.min(cloud.remainingTop, l))
+            else
+                cloud.remainingBottom := math.min(top, math.max(cloud.remainingBottom, h))
+        cloud.inverted := inverted
+        cloud.expired := not ageValid
+        cloud.lastObservedBar := bar
+    cloud
+
+export remaining(Cloud cloud) =>
+    cloud.exists ? math.max(0.0, math.min(1.0, (cloud.remainingTop - cloud.remainingBottom) / (cloud.top - cloud.bottom))) : na
+
+export distanceAtr(Cloud cloud, float price, float atr) =>
+    cloud.exists and not na(atr) and atr > 0.0 ? math.max(math.max(cloud.bottom - price, price - cloud.top), 0.0) / atr : na
+
+export widthAtr(Cloud cloud) =>
+    cloud.exists and cloud.birthAtr > 0.0 ? (cloud.top - cloud.bottom) / cloud.birthAtr : na
+
+export stateName(Cloud cloud) =>
+    not cloud.exists ? "NONE" : cloud.expired ? "EXPIRED" : cloud.inverted ? "INVERTED" : remaining(cloud) <= 0.0 ? "MITIGATED" : remaining(cloud) < 1.0 ? "PARTIAL" : "FRESH"
+
+// This is a transparent geometric/context filter, not a probability or liquidity estimate.
+export rejection(
+    Cloud cloud,
+    float price,
+    float atr,
+    float minimumRemaining,
+    float minimumWidth,
+    float minimumRvol,
+    float maximumDistance,
+    bool requireStructure,
+    bool allowInverted
+) =>
+    string reason = "PASS"
+    if not cloud.exists
+        reason := "NO ZONE"
+    else if cloud.expired
+        reason := "AGE"
+    else if cloud.inverted and not allowInverted
+        reason := "INVERTED"
+    else if not cloud.inverted and remaining(cloud) <= 0.0
+        reason := "MITIGATED"
+    else if not cloud.inverted and remaining(cloud) * 100.0 < minimumRemaining
+        reason := "REMAINING"
+    else if minimumWidth > 0.0 and (na(widthAtr(cloud)) or widthAtr(cloud) < minimumWidth)
+        reason := "WIDTH"
+    else if minimumRvol > 0.0 and (na(cloud.birthRvol) or cloud.birthRvol < minimumRvol)
+        reason := "RVOL"
+    else if maximumDistance > 0.0 and (na(distanceAtr(cloud, price, atr)) or distanceAtr(cloud, price, atr) > maximumDistance)
+        reason := "DISTANCE"
+    else if requireStructure and not cloud.structureAtBirth
+        reason := "STRUCTURE"
+    reason
+
+export opacity(Cloud cloud, int strongest, int faintest) =>
+    float density = cloud.inverted ? 0.5 : nz(remaining(cloud), 0.0)
+    int alpha = int(math.round(faintest + (strongest - faintest) * density))
+    math.max(0, math.min(100, alpha))

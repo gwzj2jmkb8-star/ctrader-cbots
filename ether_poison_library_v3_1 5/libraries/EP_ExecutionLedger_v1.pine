@@ -1,0 +1,76 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0.
+// © ClassicPotatoChamberXII
+//@version=6
+// @description Passive fill-record renderer. No orders, signals, inputs or strategy globals.
+library("EP_ExecutionLedger", overlay=true)
+
+export type EntryFill
+    string id
+    int stamp
+    int entryBar
+    float price
+    float quantity
+
+export type ClosedFill
+    EntryFill entry
+    int index
+    string exitId
+    int exitStamp
+    float exitPrice
+    float profit
+    float profitPercent
+
+export type Ledger
+    array<label> labels
+    array<string> activeKeys
+    int closedCursor = 0
+
+export create() =>
+    Ledger.new(array.new_label(), array.new_string(), 0)
+
+export tradeKey(EntryFill entry) =>
+    entry.id + "|" + str.tostring(entry.stamp) + "|" + str.tostring(entry.entryBar)
+
+export addLabel(Ledger state, int stamp, float price, string caption, string details, bool isBuy, color ink, int capacity) =>
+    while array.size(state.labels) >= math.max(capacity, 1)
+        label.delete(array.shift(state.labels))
+    label tag = label.new(stamp, price, caption, xloc=xloc.bar_time, yloc=yloc.price,
+         style=isBuy ? label.style_label_up : label.style_label_down,
+         color=color.new(ink, 22), textcolor=color.white, size=size.small, tooltip=details)
+    array.push(state.labels, tag)
+
+// State and labels intentionally share ordinary-var rollback in the caller.
+// Closed records are processed before current open entries so partials retain identity.
+export observe(Ledger state, array<EntryFill> openFills, array<ClosedFill> closedFills, int closedCount, bool visible, int capacity, color buyColor, color sellColor, color profitColor, color lossColor, color flatColor, float positionAverage, float positionQuantity) =>
+    if array.size(closedFills) > 0
+        for i = 0 to array.size(closedFills) - 1
+            ClosedFill fill = array.get(closedFills, i)
+            EntryFill entry = fill.entry
+            string key = tradeKey(entry)
+            bool wasLong = entry.quantity > 0.0
+            if not array.includes(state.activeKeys, key)
+                if visible
+                    addLabel(state, entry.stamp, entry.price,
+                         (wasLong ? "BUY · " : "SELL · ") + entry.id + "\n@ " + str.tostring(entry.price, format.mintick),
+                         "Reconstructed entry. Closed portion Q " + str.tostring(math.abs(entry.quantity), "#.####"),
+                         wasLong, wasLong ? buyColor : sellColor, capacity)
+                array.push(state.activeKeys, key)
+            if visible
+                color ink = fill.profit > 0.0 ? profitColor : fill.profit < 0.0 ? lossColor : flatColor
+                string caption = (wasLong ? "SELL · EXIT LONG" : "BUY · EXIT SHORT") + "\n@ " + str.tostring(fill.exitPrice, format.mintick) + " | Q " + str.tostring(math.abs(entry.quantity), "#.####")
+                string details = "Closed record #" + str.tostring(fill.index + 1) + " | " + entry.id + " -> " + fill.exitId + "\nP/L " + str.tostring(fill.profit, "#.##") + " | return " + str.tostring(fill.profitPercent, "#.##") + "%\nPartial exits are closed records; reversals also open a new entry."
+                addLabel(state, fill.exitStamp, fill.exitPrice, caption, details, not wasLong, ink, capacity)
+    array<string> nextActiveKeys = array.new_string()
+    if array.size(openFills) > 0
+        for i = 0 to array.size(openFills) - 1
+            EntryFill entry = array.get(openFills, i)
+            string key = tradeKey(entry)
+            array.push(nextActiveKeys, key)
+            if visible and not array.includes(state.activeKeys, key)
+                bool bought = entry.quantity > 0.0
+                string caption = (bought ? "BUY · " : "SELL · ") + entry.id + "\n@ " + str.tostring(entry.price, format.mintick) + " | Q " + str.tostring(math.abs(entry.quantity), "#.####")
+                string details = "Filled trade leg. Position average " + str.tostring(positionAverage, format.mintick) + " | total Q " + str.tostring(math.abs(positionQuantity), "#.####")
+                addLabel(state, entry.stamp, entry.price, caption, details, bought, bought ? buyColor : sellColor, capacity)
+    state.activeKeys := nextActiveKeys
+    state.closedCursor := closedCount
+    state

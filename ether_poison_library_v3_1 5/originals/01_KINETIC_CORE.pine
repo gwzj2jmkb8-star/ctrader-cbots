@@ -1,0 +1,68 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © ClassicPotatoChamberXII
+
+//@version=6
+// @description Professional Kinetic Core for ETHER POISON.
+// Handles the raw mathematical conviction and magnitude of market movement.
+
+import EP_Math as math_ep
+import EP_Types as types_ep
+
+// =============================================================================
+// 01. INPUT MATRIX - PROFESSIONAL GRADE
+// =============================================================================
+var string G_KINETIC = "Kinetic Magnitude Settings"
+kineticScale    = input.float(2.5, "Saturation Horizon", minval=0.1, step=0.1, group=G_KINETIC, tooltip="Scale at which momentum reaches 1.0 saturation")
+thresholdLethal = input.float(0.85, "Lethal Threshold", minval=0.0, maxval=1.0, step=0.01, group=G_KINETIC)
+thresholdViral  = input.float(0.60, "Viral Threshold", minval=0.0, maxval=1.0, step=0.01, group=G_KINETIC)
+
+// =============================================================================
+// 02. CORE MAGNITUDE ENGINES
+// =============================================================================
+
+// Professional Momentum Measure: A blend of rate-of-change and volatility normalization
+f_calculate_magnitude(float src, int len) =>
+    float change = src - src[len]
+    float vol = ta.atr(len)
+    // Professional normalization: Change relative to volatility
+    float raw_mag = math.abs(change) / math.max(vol, syminfo.mintick)
+    // Pass through the kinetic saturation curve (the "Poison" curve)
+    math_ep.kinetic(raw_mag, kineticScale)
+
+// Directional Energy Flux
+f_determine_flow(float src, int len) =>
+    float diff = src - src[len]
+    diff > 0 ? types_ep.EnergyFlow.ASCENDING : diff < 0 ? types_ep.EnergyFlow.DESCENDING : types_ep.EnergyFlow.STATIC
+
+// =============================================================================
+// 03. CONVICTION MAPPING (PROFESSIONAL -> NOCTURNE)
+// =============================================================================
+
+f_map_toxicity(float mag) =>
+    if mag >= thresholdLethal
+        types_ep.Toxicity.LETHAL
+    else if mag >= thresholdViral
+        types_ep.Toxicity.VIRAL
+    else if mag > 0.1
+        types_ep.Toxicity.DORMANT
+    else
+        types_ep.Toxicity.STABLE
+
+// =============================================================================
+// 04. MAIN EXECUTION PIPELINE
+// =============================================================================
+
+// Analyze primary asset flow
+float assetMag = f_calculate_magnitude(close, 14)
+types_ep.EnergyFlow currentFlow = f_determine_flow(close, 14)
+types_ep.Toxicity currentTox = f_map_toxicity(assetMag)
+
+// Construct the Kinetic State packet for the Render Engine
+types_ep.KineticState kineticState = types_ep.KineticState.new()
+kineticState.magnitude := assetMag
+kineticState.toxicity  := currentTox
+kineticState.flow      := currentFlow
+kineticState.conviction := assetMag * (currentTox == types_ep.Toxicity.LETHAL ? 1.0 : 0.5)
+
+// Export for the master orchestrator
+plot(assetMag, "Kinetic Magnitude", color=color.new(color.gray, 50), display=display.none)

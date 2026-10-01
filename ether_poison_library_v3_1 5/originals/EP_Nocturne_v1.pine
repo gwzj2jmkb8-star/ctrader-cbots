@@ -1,0 +1,25 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0.
+// © ClassicPotatoChamberXII
+//@version=6
+// @description Density-aware Nocturne rendering helpers. No inputs or orders.
+library("EP_Nocturne", overlay=true)
+
+export clampAlpha(float value) =>
+    int(math.round(math.max(0.0, math.min(100.0, value))))
+
+// High confidence and strong attenuation make the object more visible, while
+// high entropy pushes it deeper into the background.
+export densityAlpha(float confidence, float entropy, float tempAtten, int lightAlpha, int darkAlpha) =>
+    float visibility = math.max(0.0, math.min(1.0, confidence * tempAtten * (1.0 - entropy * 0.45)))
+    clampAlpha(darkAlpha - visibility * math.max(darkAlpha - lightAlpha, 0))
+
+export directionalColor(color bull, color bear, color neutral, float direction, float deadband, int alpha) =>
+    color base = direction > deadband ? bull : direction < -deadband ? bear : neutral
+    color.new(base, clampAlpha(alpha))
+
+export spectralColor(color base, float density, int faintAlpha, int strongAlpha) =>
+    float boundedDensity = math.max(0.0, math.min(1.0, density))
+    color.new(base, clampAlpha(faintAlpha - boundedDensity * math.max(faintAlpha - strongAlpha, 0)))
+
+export stateGlyph(float direction, float entropy, float confidence) =>
+    entropy >= 0.75 ? "CHAOS" : confidence >= 0.75 ? (direction >= 0.0 ? "ASCEND" : "DESCEND") : entropy <= 0.25 ? "ORDER" : "VEIL"

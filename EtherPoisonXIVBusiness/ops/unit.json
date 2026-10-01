@@ -1,0 +1,11 @@
+{
+  "unit_id": "ether-poison-xiv",
+  "display_name": "ETHER POISON XIV",
+  "owner_label": "mati",
+  "initial_environment": "demo",
+  "runtime": "cTrader Console / one cBot instance",
+  "business_scope": "own-account strategy research",
+  "release_state": "candidate",
+  "terraform_output": "unit_registration",
+  "note": "Operational inventory identity, not legal entity or cTrader Store registration."
+}

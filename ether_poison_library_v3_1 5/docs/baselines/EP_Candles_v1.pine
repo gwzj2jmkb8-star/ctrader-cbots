@@ -1,0 +1,27 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0.
+// © ClassicPotatoChamberXII
+//@version=6
+// @description Synthetic HA geometry and causal relative-volume measurements.
+library("EP_Candles")
+
+// Call once, unconditionally, on standard OHLC. Previous BAR values deliberately
+// prevent fill recalculations from advancing the HA recurrence a second time.
+export heikinAshi(float o, float h, float l, float c) =>
+    float hc = (o + h + l + c) * 0.25
+    var float ho = na
+    ho := na(ho[1]) ? (o + c) * 0.5 : (ho[1] + hc[1]) * 0.5
+    [ho, math.max(h, math.max(ho, hc)), math.min(l, math.min(ho, hc)), hc]
+
+// Reference excludes the current bar. No fake neutral volume during warmup,
+// missing feeds or a zero-volume baseline. Zero current volume is valid.
+export relativeVolume(float v, simple int length) =>
+    float baseline = ta.sma(v, length)[1]
+    bool valid = not na(v) and v >= 0.0 and not na(baseline) and baseline > 0.0
+    [valid ? v / baseline : na, baseline, valid]
+
+// OHLC close-location allocation is a proxy, NOT bid/ask volume or order flow.
+export buyShare(float h, float l, float c) =>
+    h > l ? math.max(0.0, math.min(1.0, (c - l) / (h - l))) : 0.5
+
+export bodyFraction(float o, float h, float l, float c) =>
+    h > l ? math.max(0.0, math.min(1.0, math.abs(c - o) / (h - l))) : 0.0

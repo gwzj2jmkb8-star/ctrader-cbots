@@ -1,0 +1,47 @@
+ETHER v3.3 — visual upgrade, 2026-09-27
+Source/contract checks only; no Pine compiler, rendering, replay or measured profiling.
+
+PASS: all local imports match the shared version contract
+PASS: standalone matches master and actual libraries
+PASS: static structural audit
+Conservative plot count: 61 / 64; {'bgcolor': 2, 'plot': 38, 'fill': 9, 'barcolor': 1, 'plotcandle': 7, 'alertcondition': 4}
+TradingView compilation and broker-emulator runtime checks remain required.
+test_cloud_gaps_and_last_bar_screen (test_candle_clouds.CandleCloudContracts.test_cloud_gaps_and_last_bar_screen) ... ok
+test_cloud_mitigation_is_clamped_monotonic_and_skips_birth (test_candle_clouds.CandleCloudContracts.test_cloud_mitigation_is_clamped_monotonic_and_skips_birth) ... ok
+test_documented_feed_has_no_future_lookahead (test_candle_clouds.CandleCloudContracts.test_documented_feed_has_no_future_lookahead) ... ok
+test_filter_can_explain_missing_volume_and_terminal_states (test_candle_clouds.CandleCloudContracts.test_filter_can_explain_missing_volume_and_terminal_states) ... ok
+test_orders_unchanged_by_display_upgrade (test_candle_clouds.CandleCloudContracts.test_orders_unchanged_by_display_upgrade) ... ok
+test_prior_candle_exports_remain_available (test_candle_clouds.CandleCloudContracts.test_prior_candle_exports_remain_available) ... ok
+test_reserved_text_not_declared (test_candle_clouds.CandleCloudContracts.test_reserved_text_not_declared) ... ok
+test_volume_pool_reuses_drawings_and_bounds_history (test_candle_clouds.CandleCloudContracts.test_volume_pool_reuses_drawings_and_bounds_history) ... ok
+test_actual_cancellation_precedes_ticket_finalization (test_order_engines.OrderEngineContracts.test_actual_cancellation_precedes_ticket_finalization) ... ok
+test_all_ticket_fields_survive_rollback (test_order_engines.OrderEngineContracts.test_all_ticket_fields_survive_rollback) ... ok
+test_confirmed_fills_win_over_cancel_and_use_trade_ids (test_order_engines.OrderEngineContracts.test_confirmed_fills_win_over_cancel_and_use_trade_ids) ... ok
+test_limit_harvest_reduces_position_and_cancels_pending_first (test_order_engines.OrderEngineContracts.test_limit_harvest_reduces_position_and_cancels_pending_first) ... ok
+test_limit_rescue_counts_fills_and_sizes_at_requested_price (test_order_engines.OrderEngineContracts.test_limit_rescue_counts_fills_and_sizes_at_requested_price) ... ok
+test_live_ticket_is_frozen_and_cannot_rearm_same_bar (test_order_engines.OrderEngineContracts.test_live_ticket_is_frozen_and_cannot_rearm_same_bar) ... ok
+test_resting_orders_are_submitted_with_prices_before_any_touch (test_order_engines.OrderEngineContracts.test_resting_orders_are_submitted_with_prices_before_any_touch) ... ok
+test_status_labels_distinguish_pending_from_filled (test_order_engines.OrderEngineContracts.test_status_labels_distinguish_pending_from_filled) ... ok
+test_toggle_defaults_to_market_and_both_paths_are_gated (test_order_engines.OrderEngineContracts.test_toggle_defaults_to_market_and_both_paths_are_gated) ... ok
+test_all_attached_inputs_and_defaults_preserved (test_preservation.Preservation.test_all_attached_inputs_and_defaults_preserved) ... ok
+test_all_original_bytes (test_preservation.Preservation.test_all_original_bytes) ... ok
+test_compilation_risk_scan (test_preservation.Preservation.test_compilation_risk_scan) ... ok
+test_dependency_rebuild (test_preservation.Preservation.test_dependency_rebuild) ... ok
+test_disabled_shapes_preserved (test_preservation.Preservation.test_disabled_shapes_preserved) ... ok
+test_every_library_is_imported_and_used (test_preservation.Preservation.test_every_library_is_imported_and_used) ... ok
+test_ledger_reads_all_new_closures (test_preservation.Preservation.test_ledger_reads_all_new_closures) ... ok
+test_market_order_commands_preserved (test_preservation.Preservation.test_market_order_commands_preserved) ... ok
+test_market_rescue_state_and_sizing_preserved (test_preservation.Preservation.test_market_rescue_state_and_sizing_preserved) ... ok
+test_no_strategy_orders_in_any_library (test_preservation.Preservation.test_no_strategy_orders_in_any_library) ... ok
+test_original_state_names_preserved (test_preservation.Preservation.test_original_state_names_preserved) ... ok
+test_original_visuals_retained (test_preservation.Preservation.test_original_visuals_retained) ... ok
+test_pre_order_revision_preserved (test_preservation.Preservation.test_pre_order_revision_preserved) ... ok
+test_published_api_union_retained (test_preservation.Preservation.test_published_api_union_retained) ... ok
+test_rejects_reported_nocturne_types_split (test_preservation.Preservation.test_rejects_reported_nocturne_types_split) ... ok
+test_scores_preserved (test_preservation.Preservation.test_scores_preserved) ... ok
+test_shared_dependency_contract (test_preservation.Preservation.test_shared_dependency_contract) ... ok
+
+----------------------------------------------------------------------
+Ran 34 tests in 0.072s
+
+OK

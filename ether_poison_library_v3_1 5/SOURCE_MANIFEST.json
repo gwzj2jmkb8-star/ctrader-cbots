@@ -1,0 +1,94 @@
+[
+  {
+    "file": "originals/ETHER_POISON_FINAL.pine",
+    "sha256": "d16ab4b02dad4fccf8893be00c1180ee3a956c46bcb1040ab0f7ebe897278cbf"
+  },
+  {
+    "file": "originals/ETHER_POISON_STANDALONE.pine",
+    "sha256": "cdae6e8913092347a0499fb3744dcdbc6c26b044aa44b6fe1f52a111b2e530ac"
+  },
+  {
+    "file": "originals/audit.sh",
+    "sha256": "7b0a62bb4e1c431e5ebec8fe8d9d1ae41269b694bcb3e50f52c55d3adf888363"
+  },
+  {
+    "file": "originals/README.md",
+    "sha256": "20d257a980cc642f804158f8ccf785595d6ccf876c28332e37b72625529cf5b7"
+  },
+  {
+    "file": "originals/build_standalone.sh",
+    "sha256": "5dca1037540613d3f058e11c0b7fd31860f05dfc8df72452a78b1a3e933386f0"
+  },
+  {
+    "file": "originals/ETHER_POISON_FINAL_MERGED.pine",
+    "sha256": "0e0b5884731ed2bc481d9c03e9a863189aa42b792cfa496114744c69515589d2"
+  },
+  {
+    "file": "originals/ETHER_POISON_FINAL_FIXED.pine",
+    "sha256": "5e38c2e79b71d75f7b400bf2ec4b3d2f820696375e2132c7974b7b8ce57c9337"
+  },
+  {
+    "file": "originals/jade.pine",
+    "sha256": "9c4660ca9b828392bf4f40c002e4c2e1a322d6e5b9c0f381d6dcb82cfc96f682"
+  },
+  {
+    "file": "originals/NOCTURNE_VISUALS.pine",
+    "sha256": "bddfd01d637077d715621ae6f95e6b1dc39d4a1e1ff1d11cdb270ba2750bc90a"
+  },
+  {
+    "file": "originals/ETHER_POISON_IMPORTED.pine",
+    "sha256": "7d969b3a7f712fab90e7035fc816489bb8eac0f0b295f4a50600cd6490ce085f"
+  },
+  {
+    "file": "originals/ETHER_POISON_MASTER.pine",
+    "sha256": "43ce4dee407f042b657e1b0f679215c80d63f1e52ae65216fc572af36f5b2087"
+  },
+  {
+    "file": "originals/04_SPACE_TIME_GRID.pine",
+    "sha256": "3b853f187bf8bbd3f8de41ce4ec85ff0790e3aac906d2e73015407075b44deca"
+  },
+  {
+    "file": "originals/03_RESCUE_ENGINE.pine",
+    "sha256": "6150d34657a44eddadb9a66cbb31f335d28617525cdbfdd674cf9b32dd6e10dd"
+  },
+  {
+    "file": "originals/02_SPATIAL_GATES.pine",
+    "sha256": "44c0d6a6f64371d1723c29de7da0a5d5b25f12a02ebcfd36f33651ef8cd9e5ef"
+  },
+  {
+    "file": "originals/01_KINETIC_CORE.pine",
+    "sha256": "ac6a5ddf14772f4c2b3a9f9f98c70d1e080c3f2e07b56138221f7cb4e75ae94b"
+  },
+  {
+    "file": "originals/EP_Nocturne_v1.pine",
+    "sha256": "31a6777a540d31e1b054b9dcf021afac43e027456460aa1002aea9be4800bde5"
+  },
+  {
+    "file": "originals/EP_Engines_v2.pine",
+    "sha256": "848ce858e14a42dbf69db6c784374c241b3f6b4fe05729b019e2b86c0ec54d1d"
+  },
+  {
+    "file": "originals/EP_Types_v2.pine",
+    "sha256": "7bec20b956e4cbadc9f072e30bc9eee8778583300090298af56bc56c294ad4e6"
+  },
+  {
+    "file": "originals/EP_Math_v2.pine",
+    "sha256": "281e20f14beccaaab0c3ec4c1e766e4ab236e670f117ed92e665d961e15dab6c"
+  },
+  {
+    "file": "originals/EP_Engines.pine",
+    "sha256": "c37e47890f3519c79050b7456a34010fc02fa45e7d56a06572af4da090e05f42"
+  },
+  {
+    "file": "originals/EP_Types.pine",
+    "sha256": "983aff9135810894ccf95196c0b5a3ad3bd764d30d7f94e4e6f337f9ed7297b9"
+  },
+  {
+    "file": "originals/EP_Math.pine",
+    "sha256": "18c5a322d7b99f7589fb1f2bc23fa74c9a7dab843e05fcd1b6f7ecc891f465ae"
+  },
+  {
+    "file": "originals/ATTACHED_MAIN.pine",
+    "sha256": "561546d6a615c5c34e207fbeb374cb13ebc007eef5613ae92bb49beb6299b8de"
+  }
+]

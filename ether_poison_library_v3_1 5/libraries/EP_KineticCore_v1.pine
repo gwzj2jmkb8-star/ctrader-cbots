@@ -1,0 +1,45 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0.
+// © ClassicPotatoChamberXII
+//@version=6
+// @description Reusable knowledge from 01_KINETIC_CORE, jade and final/master variants.
+library("EP_KineticCore")
+import ClassicPotatoChamberXII/EP_Math/3 as epMath
+import ClassicPotatoChamberXII/EP_Types/4 as epTypes
+
+// Current v2 path; same formula and epsilon conventions.
+export magnitude(float source, float sourcePast, float atr, float scale) =>
+    epMath.kinetic(epMath.distanceAtr(source, sourcePast, atr), scale)
+
+export f_map_toxicity(float mag, float thresholdLethal, float thresholdViral) =>
+    mag >= thresholdLethal ? epTypes.Toxicity.LETHAL : mag >= thresholdViral ? epTypes.Toxicity.VIRAL : mag > 0.1 ? epTypes.Toxicity.DORMANT : epTypes.Toxicity.STABLE
+
+export f_determine_flow(float src, simple int len) =>
+    float diff = src - src[len]
+    diff > 0.0 ? epTypes.EnergyFlow.ASCENDING : diff < 0.0 ? epTypes.EnergyFlow.DESCENDING : epTypes.EnergyFlow.STATIC
+
+// Original shard uses mintick as its ATR denominator floor.
+export f_calculate_magnitude(float src, simple int len, float scale, float tickSize) =>
+    float change = src - src[len]
+    float vol = ta.atr(len)
+    epMath.kinetic(math.abs(change) / math.max(vol, tickSize), scale)
+
+export state(float magnitudeValue, epTypes.EnergyFlow flow, float lethal, float viral) =>
+    epTypes.Toxicity toxicity = f_map_toxicity(magnitudeValue, lethal, viral)
+    epTypes.KineticState.new(magnitudeValue, toxicity, flow, magnitudeValue * (toxicity == epTypes.Toxicity.LETHAL ? 1.0 : 0.5))
+
+export f_get_kinetic_state(float src, float scale, float thL, float thV) =>
+    float mag = f_calculate_magnitude(src, 14, scale, syminfo.mintick)
+    state(mag, f_determine_flow(src, 14), thL, thV)
+
+// Early EP_Engines and embedded Final variants handle negative scale differently
+// from Math v2. Preserve the actual historical formula under an explicit API.
+export legacyMagnitude(float source, float sourcePast, float atr, float scale) =>
+    float raw = math.abs(source - sourcePast) / math.max(atr, 1e-6)
+    float bounded = math.min(raw / math.max(scale, 1e-6), 1.0)
+    math.min(math.tan(bounded * math.pi / 4.0), 1.0)
+
+// Exact embedded Final convention: mintick floor + legacy non-absolute scale.
+export finalKineticState(float src, float scale, float lethal, float viral) =>
+    float raw = math.abs(src - src[14]) / math.max(ta.atr(14), syminfo.mintick)
+    float mag = epMath.legacyKineticSaturation(raw, scale)
+    state(mag, f_determine_flow(src, 14), lethal, viral)

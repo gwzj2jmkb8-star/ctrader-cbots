@@ -1,0 +1,51 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0.
+// © ClassicPotatoChamberXII
+//@version=6
+// @description Density-aware Nocturne rendering helpers. No inputs or orders.
+library("EP_Nocturne", overlay=true)
+import ClassicPotatoChamberXII/EP_Types/4 as epTypes
+
+export clampAlpha(float value) =>
+    int(math.round(math.max(0.0, math.min(100.0, value))))
+
+// High confidence and strong attenuation make the object more visible, while
+// high entropy pushes it deeper into the background.
+export densityAlpha(float confidence, float entropy, float tempAtten, int lightAlpha, int darkAlpha) =>
+    float visibility = math.max(0.0, math.min(1.0, confidence * tempAtten * (1.0 - entropy * 0.45)))
+    clampAlpha(darkAlpha - visibility * math.max(darkAlpha - lightAlpha, 0))
+
+export directionalColor(color bull, color bear, color neutral, float direction, float deadband, int alpha) =>
+    color base = direction > deadband ? bull : direction < -deadband ? bear : neutral
+    color.new(base, clampAlpha(alpha))
+
+export spectralColor(color base, float density, int faintAlpha, int strongAlpha) =>
+    float boundedDensity = math.max(0.0, math.min(1.0, density))
+    color.new(base, clampAlpha(faintAlpha - boundedDensity * math.max(faintAlpha - strongAlpha, 0)))
+
+export stateGlyph(float direction, float entropy, float confidence) =>
+    entropy >= 0.75 ? "CHAOS" : confidence >= 0.75 ? (direction >= 0.0 ? "ASCEND" : "DESCEND") : entropy <= 0.25 ? "ORDER" : "VEIL"
+
+// NOCTURNE_VISUALS / jade palette API. Palette values are caller-owned inputs.
+export f_get_toxicity_color(epTypes.Toxicity tox, color lethal, color viral, color dormant, color stable) =>
+    tox == epTypes.Toxicity.LETHAL ? lethal : tox == epTypes.Toxicity.VIRAL ? viral : tox == epTypes.Toxicity.DORMANT ? dormant : stable
+
+// The original renderer was a color-selection scaffold, not an actual plot.
+// Export geometry + colors so callers can render with global plots or objects.
+export f_render_nocturne(float spanA, float spanB, float rapidA, float rapidB, epTypes.Toxicity tox, color lethal, color viral, color dormant, color stable, color shadow, color ghost) =>
+    color cloudColor = f_get_toxicity_color(tox, lethal, viral, dormant, stable)
+    color rapidColor = tox == epTypes.Toxicity.LETHAL ? lethal : shadow
+    color railColor = tox == epTypes.Toxicity.VIRAL ? viral : ghost
+    [math.max(spanA, spanB), math.min(spanA, spanB), math.max(rapidA, rapidB), math.min(rapidA, rapidB), cloudColor, rapidColor, railColor]
+
+// Existing cockpit data survives, but table ownership/position is the caller's.
+export f_render_cockpit(table cockpit, epTypes.KineticState state, epTypes.Permission perm, color textColor, color bullColor, color bearColor, color dormant, color stable) =>
+    table.cell(cockpit, 0, 0, "ETHER", text_color=textColor, text_size=size.tiny)
+    table.cell(cockpit, 1, 0, "KNOWLEDGE", text_color=bullColor, text_size=size.tiny)
+    table.cell(cockpit, 0, 1, "TOXICITY", text_color=textColor, text_size=size.tiny)
+    table.cell(cockpit, 1, 1, str.tostring(state.toxicity), bgcolor=f_get_toxicity_color(state.toxicity, bullColor, bearColor, dormant, stable), text_color=textColor, text_size=size.tiny)
+    table.cell(cockpit, 0, 2, "FLOW", text_color=textColor, text_size=size.tiny)
+    table.cell(cockpit, 1, 2, str.tostring(state.flow), text_color=bullColor, text_size=size.tiny)
+    table.cell(cockpit, 0, 3, "LEGACY PERMIT", text_color=textColor, text_size=size.tiny)
+    table.cell(cockpit, 1, 3, str.tostring(perm), text_color=perm == epTypes.Permission.OFFENSIVE ? bullColor : bearColor, text_size=size.tiny)
+    table.cell(cockpit, 0, 4, "CONVICTION", text_color=textColor, text_size=size.tiny)
+    table.cell(cockpit, 1, 4, str.tostring(state.conviction * 100.0, "#.0") + "%", text_color=textColor, text_size=size.tiny)

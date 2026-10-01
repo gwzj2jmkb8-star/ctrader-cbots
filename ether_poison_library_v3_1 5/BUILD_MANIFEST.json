@@ -1,0 +1,16 @@
+{
+  "libraries/EP_Math_v3.pine": "93e9fdcc2594aef582d66d94437980b6bd69ade671369f9a1a8bbf23f73136f6",
+  "libraries/EP_Types_v3.pine": "c5cc0467ecb6f47db414a76293726fae3ad824a5371be8c19632b1136b36e562",
+  "libraries/EP_Engines_v3.pine": "b09ec37aaf04268156bc98ccf45f43957de887e7c5b8a69233ce09dc44362fe8",
+  "libraries/EP_KineticCore_v1.pine": "fa9dff78834005badf93f66c987bdce90cae7a514ce5d3fa9add9ca5971e3da0",
+  "libraries/EP_RescueEngine_v1.pine": "3e4ae5a6227694b71f7f8ce50c14d272a9f8ae262a644a36415199bcba93f852",
+  "libraries/EP_SpaceTimeGrid_v1.pine": "2be442b81a3e7b69f1eeaabf5ad780256a7f14bfc61b2ee7662b56d7ad1afeab",
+  "libraries/EP_Nocturne_v2.pine": "e48d38833f5e14b11a7503d1b8802edd695ca01d9cb07b334934cfe2bac81f61",
+  "libraries/EP_SpatialGates_v1.pine": "99805ef5d6ab7efa5aba393a7b3f0bcfa1b6c334bdb3a08a0e0c9d4b22e64273",
+  "libraries/EP_Candles_v2.pine": "e8596cee9863f05324945e27764b796a5615e1517968deaf42f71f6d454c26b5",
+  "libraries/EP_ExecutionLedger_v1.pine": "baf1af381107980c891768239f69a24b352706348ef3b58caaad22f3e6b0ac78",
+  "libraries/EP_MarketOrders_v1.pine": "3436b8e65104116937923a7482ff41614a4fe56848ae150dc8f73c3dd0607c26",
+  "libraries/EP_LimitOrders_v1.pine": "680f2f4b09a504f1bfc598ef1209e306f3ccd31172fc4c7a8e7b379d8952ed57",
+  "libraries/EP_CloudScreen_v1.pine": "13eaf437fa8f92c94c229cbb2d72240ae0f73b68dea76750d67232ccbceabdfb",
+  "master/ETHER_POISON_LIBRARY_MASTER.pine": "c625d31761dbbe97a040ddd69a5b172fca3bb32809be40d5740e3de15a45321c"
+}

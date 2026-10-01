@@ -1,0 +1,697 @@
+//@version=6
+strategy("VITCO Enterprise Strategy v7.2 [Vector Field + Signals]",
+     shorttitle="VITCO_STRAT_v72",
+     overlay=false,
+     max_lines_count=500,
+     max_boxes_count=500,
+     max_labels_count=500,
+     pyramiding=0,
+     initial_capital=10000,
+     commission_type=strategy.commission.percent,
+     commission_value=0.05,
+     process_orders_on_close=true,
+     calc_on_order_fills=true)
+
+// ============================================================================
+// 00 • TYPES
+// ============================================================================
+type MatrixColumn
+    box   colBox
+    line  topCap
+    int   targetBar
+    float deltaVal
+    float strength
+
+type WaveNode
+    int    barIdx
+    float  priceVal
+    float  oscVal
+    string waveType
+
+// ============================================================================
+// 01 • CONFIGURATION
+// ============================================================================
+grp_core = "01 • ICHIMOKU CORE"
+i_t      = input.int(9,  "Tenkan", minval=1, group=grp_core)
+i_k      = input.int(26, "Kijun", minval=1, group=grp_core)
+i_sB     = input.int(52, "Senkou B", minval=1, group=grp_core)
+i_off    = input.int(26, "Projection Bars", minval=1, maxval=100, group=grp_core)
+
+grp_norm = "02 • NORMALIZATION / SIGNAL KERNEL"
+i_atrLen = input.int(14, "ATR Length", minval=1, group=grp_norm)
+i_rmsLen = input.int(34, "Adaptive RMS Length", minval=2, group=grp_norm)
+i_fast   = input.int(5, "Impulse EMA", minval=1, group=grp_norm)
+i_slow   = input.int(13, "Signal EMA", minval=1, group=grp_norm)
+i_velLen = input.int(3, "Velocity Smoothing", minval=1, group=grp_norm)
+i_effLen = input.int(14, "Price Efficiency Length", minval=2, group=grp_norm)
+i_clip   = input.float(4.0, "Kernel Soft Clip", step=0.1, group=grp_norm)
+
+grp_vol  = "03 • VOLUME / EXPANSION"
+i_volSMA = input.int(20, "Volume Baseline", minval=1, group=grp_vol)
+i_volCap = input.float(3.0, "Relative Volume Cap", step=0.1, group=grp_vol)
+i_fAmp   = input.float(1.35, "Field Amplitude", step=0.05, group=grp_vol)
+i_energy = input.float(1.20, "Energy Gain", step=0.05, group=grp_vol)
+
+grp_mix  = "04 • COMPOSITE WEIGHTS"
+w_tk     = input.float(1.00, "T-K Displacement", step=0.05, group=grp_mix)
+w_kumo   = input.float(0.65, "Kumo Structure", step=0.05, group=grp_mix)
+w_vel    = input.float(0.70, "Velocity", step=0.05, group=grp_mix)
+w_acc    = input.float(0.35, "Acceleration", step=0.05, group=grp_mix)
+w_eff    = input.float(0.45, "Directional Efficiency", step=0.05, group=grp_mix)
+w_vol    = input.float(0.30, "Volume Impulse", step=0.05, group=grp_mix)
+
+grp_wave = "05 • HADO / TIME THEORY"
+i_wavLen = input.int(5, "Wave Pivot Length", minval=2, group=grp_wave)
+i_showWav = input.bool(true, "Hado Vectors", group=grp_wave)
+i_showTime = input.bool(true, "Kihon Nodes", group=grp_wave)
+
+grp_plot = "06 • RENDERER"
+i_showOuter = input.bool(true, "Outer Regime Field", group=grp_plot)
+i_showInner = input.bool(true, "Inner Energy Field", group=grp_plot)
+i_showHist  = input.bool(true, "Momentum Body", group=grp_plot)
+i_showRibbon = input.bool(true, "Impulse Ribbon", group=grp_plot)
+i_showKumo = input.bool(true, "Kumo Delta", group=grp_plot)
+i_showFwd = input.bool(true, "Forward Matrix", group=grp_plot)
+
+grp_trade = "07 • STRATEGY / SIGNAL EXECUTION"
+i_tradeLong = input.bool(true, "Enable Long", group=grp_trade)
+i_tradeShort = input.bool(true, "Enable Short", group=grp_trade)
+i_minEnergy = input.float(0.35, "Minimum Energy 0..1", step=0.05, group=grp_trade)
+i_minAgree = input.float(0.25, "Minimum Agreement 0..1", step=0.05, group=grp_trade)
+i_requireKumo = input.bool(true, "Require Kumo Agreement", group=grp_trade)
+i_confirmClose = input.bool(true, "Confirm On Bar Close", group=grp_trade)
+i_exitFlip = input.bool(true, "Exit On Opposite Signal", group=grp_trade)
+i_useATRExit = input.bool(true, "Use ATR Stop / Target", group=grp_trade)
+i_slATR = input.float(2.25, "Stop ATR", step=0.05, group=grp_trade)
+i_tpATR = input.float(4.50, "Target ATR", step=0.05, group=grp_trade)
+i_showLabels = input.bool(true, "Trade Labels", group=grp_trade)
+i_showSignalMarks = input.bool(true, "Signal Marks", group=grp_trade)
+
+grp_theme = "08 • VITCO THEME"
+c_bull    = input.color(#20E3B2, "Bull Primary", group=grp_theme)
+c_bullHot = input.color(#00F5D4, "Bull Energy", group=grp_theme)
+c_bear    = input.color(#FF477E, "Bear Primary", group=grp_theme)
+c_bearHot = input.color(#FF2E63, "Bear Energy", group=grp_theme)
+c_neutral = input.color(#8492A6, "Neutral", group=grp_theme)
+c_signal  = input.color(#F6C85F, "Signal", group=grp_theme)
+c_kumo    = input.color(#B8C0FF, "Kumo Delta", group=grp_theme)
+c_node    = input.color(#FFD166, "Time / Wave Node", group=grp_theme)
+
+// ============================================================================
+// 02 • NUMERIC UTILITIES
+// ============================================================================
+f_donchian(simple int len) =>
+    math.avg(ta.highest(high, len), ta.lowest(low, len))
+
+f_safe_div(float a, float b) =>
+    math.abs(b) > 1e-10 ? a / b : 0.0
+
+f_softclip(float x, float lim) =>
+    float safe_lim = math.max(math.abs(lim), 1e-10)
+    float scaled = x / safe_lim
+    safe_lim * scaled / (1.0 + math.abs(scaled))
+
+f_rms(float x, simple int len) =>
+    math.sqrt(math.max(ta.sma(x * x, len), 1e-10))
+
+f_norm(float x, simple int len) =>
+    f_safe_div(x, f_rms(x, len))
+
+f_clamp(float x, float lo, float hi) =>
+    math.max(lo, math.min(hi, x))
+
+f_signed_efficiency(simple int len) =>
+    float displacement = close - close[len]
+    float path = math.sum(math.abs(ta.change(close)), len)
+    f_safe_div(displacement, path)
+
+// ============================================================================
+// 03 • ICHIMOKU STRUCTURAL KERNEL
+// ============================================================================
+t_val = f_donchian(i_t)
+k_val = f_donchian(i_k)
+sA    = math.avg(t_val, k_val)
+sB    = f_donchian(i_sB)
+
+atr = math.max(ta.atr(i_atrLen), syminfo.mintick)
+
+tk_raw       = t_val - k_val
+kumo_raw     = sA - sB
+tk_atr       = f_safe_div(tk_raw, atr)
+kumo_atr     = f_safe_div(kumo_raw, atr)
+tk_norm      = f_softclip(f_norm(tk_atr, i_rmsLen), i_clip)
+kumo_norm    = f_softclip(f_norm(kumo_atr, i_rmsLen), i_clip)
+
+// ============================================================================
+// 04 • DYNAMICS: VELOCITY / ACCELERATION / EFFICIENCY / VOLUME
+// ============================================================================
+tk_velocity_raw = ta.change(tk_norm)
+tk_velocity     = ta.ema(tk_velocity_raw, i_velLen)
+tk_acceleration = ta.ema(ta.change(tk_velocity), i_velLen)
+
+vel_norm = f_softclip(f_norm(tk_velocity, i_rmsLen), i_clip)
+acc_norm = f_softclip(f_norm(tk_acceleration, i_rmsLen), i_clip)
+
+eff_raw  = f_signed_efficiency(i_effLen)
+eff_norm = f_softclip(eff_raw * 2.0, 2.0)
+
+vol_base = ta.sma(volume, i_volSMA)
+rel_vol  = f_clamp(f_safe_div(volume, vol_base), 0.0, i_volCap)
+vol_centered = rel_vol - 1.0
+
+price_delta = ta.change(close)
+price_dir = price_delta > 0 ? 1.0 : price_delta < 0 ? -1.0 : 0.0
+vol_impulse_raw = vol_centered * price_dir
+vol_impulse = f_softclip(f_norm(vol_impulse_raw, i_rmsLen), i_clip)
+
+// ============================================================================
+// 05 • COMPOSITE VECTOR FIELD
+// Weighted numerator / active-weight denominator keeps tuning interpretable.
+// ============================================================================
+weight_sum = math.max(
+     math.abs(w_tk) +
+     math.abs(w_kumo) +
+     math.abs(w_vel) +
+     math.abs(w_acc) +
+     math.abs(w_eff) +
+     math.abs(w_vol),
+     1e-10)
+
+composite_raw = (
+     tk_norm      * w_tk +
+     kumo_norm    * w_kumo +
+     vel_norm     * w_vel +
+     acc_norm     * w_acc +
+     eff_norm     * w_eff +
+     vol_impulse  * w_vol
+     ) / weight_sum
+
+composite = f_softclip(composite_raw * 3.0, i_clip)
+
+impulse = ta.ema(composite, i_fast)
+signal  = ta.ema(impulse, i_slow)
+spread  = impulse - signal
+
+// Energy is magnitude, not direction.
+energy_seed = (
+     math.abs(tk_norm) +
+     math.abs(kumo_norm) +
+     math.abs(vel_norm) +
+     math.abs(acc_norm) +
+     math.abs(vol_impulse)
+     ) / 5.0
+
+energy = f_clamp(ta.ema(energy_seed, i_fast) * i_energy, 0.0, i_clip)
+
+// Persistence rewards directional agreement between independent channels.
+bull_votes = (
+     (tk_norm > 0 ? 1.0 : 0.0) +
+     (kumo_norm > 0 ? 1.0 : 0.0) +
+     (vel_norm > 0 ? 1.0 : 0.0) +
+     (eff_norm > 0 ? 1.0 : 0.0)
+     ) / 4.0
+
+bear_votes = (
+     (tk_norm < 0 ? 1.0 : 0.0) +
+     (kumo_norm < 0 ? 1.0 : 0.0) +
+     (vel_norm < 0 ? 1.0 : 0.0) +
+     (eff_norm < 0 ? 1.0 : 0.0)
+     ) / 4.0
+
+persistence = bull_votes - bear_votes
+pressure    = composite * (0.55 + math.abs(persistence) * 0.45)
+
+// Expansion combines energy, velocity and relative-volume participation.
+expansion = f_clamp(
+     energy *
+     (0.65 + math.abs(vel_norm) * 0.20) *
+     (0.80 + math.min(rel_vol, 2.0) * 0.10),
+     0.0,
+     i_clip)
+
+field_amp  = expansion * i_fAmp
+outer_bull = pressure >= 0 ? field_amp : 0.0
+outer_bear = pressure <  0 ? -field_amp : 0.0
+
+inner_amp  = math.abs(impulse) * (0.55 + energy * 0.25)
+inner_bull = impulse >= 0 ? inner_amp : 0.0
+inner_bear = impulse <  0 ? -inner_amp : 0.0
+
+// ============================================================================
+// 06 • HIGH-END COLOR / INTENSITY MODEL
+// ============================================================================
+energy01 = f_clamp(f_safe_div(energy, 2.0), 0.0, 1.0)
+agree01  = f_clamp(math.abs(persistence), 0.0, 1.0)
+spread01 = f_clamp(math.abs(spread), 0.0, 1.0)
+
+hist_alpha = int(f_clamp(68.0 - energy01 * 42.0 - agree01 * 14.0, 8.0, 78.0))
+field_alpha = int(f_clamp(92.0 - energy01 * 36.0, 48.0, 94.0))
+inner_alpha = int(f_clamp(82.0 - energy01 * 38.0 - spread01 * 12.0, 24.0, 86.0))
+
+hist_col = composite >= 0 ?
+     color.new(energy01 > 0.65 ? c_bullHot : c_bull, hist_alpha) :
+     color.new(energy01 > 0.65 ? c_bearHot : c_bear, hist_alpha)
+
+outer_bull_col = color.new(c_bull, field_alpha)
+outer_bear_col = color.new(c_bear, field_alpha)
+inner_bull_col = color.new(c_bullHot, inner_alpha)
+inner_bear_col = color.new(c_bearHot, inner_alpha)
+
+// ============================================================================
+// 07 • OSCILLATOR RENDER STACK
+// Layer order: atmosphere -> field -> body -> ribbon -> structural telemetry.
+// ============================================================================
+p_zero = plot(0.0, "Equilibrium", color=color.new(c_neutral, 68), linewidth=1)
+
+p_outer_bull = plot(
+     i_showOuter ? outer_bull : na,
+     "Bull Regime Envelope",
+     color=outer_bull_col,
+     linewidth=1)
+
+p_outer_bear = plot(
+     i_showOuter ? outer_bear : na,
+     "Bear Regime Envelope",
+     color=outer_bear_col,
+     linewidth=1)
+
+fill(p_zero, p_outer_bull, color=color.new(c_bull, field_alpha), title="Bull Atmosphere")
+fill(p_zero, p_outer_bear, color=color.new(c_bear, field_alpha), title="Bear Atmosphere")
+
+p_inner_bull = plot(
+     i_showInner ? inner_bull : na,
+     "Bull Energy Body",
+     color=inner_bull_col,
+     linewidth=1)
+
+p_inner_bear = plot(
+     i_showInner ? inner_bear : na,
+     "Bear Energy Body",
+     color=inner_bear_col,
+     linewidth=1)
+
+fill(p_zero, p_inner_bull, color=color.new(c_bullHot, inner_alpha), title="Bull Energy Fill")
+fill(p_zero, p_inner_bear, color=color.new(c_bearHot, inner_alpha), title="Bear Energy Fill")
+
+plot(
+     i_showHist ? composite : na,
+     "Composite Momentum",
+     color=hist_col,
+     style=plot.style_columns,
+     linewidth=2)
+
+p_impulse = plot(
+     i_showRibbon ? impulse : na,
+     "Impulse",
+     color=color.new(impulse >= signal ? c_bullHot : c_bearHot, 4),
+     linewidth=2)
+
+p_signal = plot(
+     i_showRibbon ? signal : na,
+     "Signal",
+     color=color.new(c_signal, 22),
+     linewidth=2)
+
+ribbon_alpha = int(f_clamp(90.0 - spread01 * 62.0, 18.0, 92.0))
+fill(
+     p_impulse,
+     p_signal,
+     color=impulse >= signal ?
+         color.new(c_bullHot, ribbon_alpha) :
+         color.new(c_bearHot, ribbon_alpha),
+     title="Impulse / Signal Ribbon")
+
+plot(
+     i_showKumo ? kumo_norm : na,
+     "Normalized Kumo Delta",
+     color=color.new(c_kumo, 48),
+     style=plot.style_stepline,
+     linewidth=1)
+
+// Small high-frequency tracer. This gives acceleration a visible edge without
+// adding another heavy visual band.
+plot(
+     i_showRibbon ? vel_norm * 0.35 : na,
+     "Velocity Tracer",
+     color=color.new(c_neutral, 62),
+     linewidth=1)
+
+// ============================================================================
+// 08 • SIGNAL + STRATEGY EXECUTION
+// ============================================================================
+bull_regime = composite > 0 and impulse > signal and persistence > 0
+bear_regime = composite < 0 and impulse < signal and persistence < 0
+bull_expansion = bull_regime and energy01 > 0.55 and vel_norm > 0
+bear_expansion = bear_regime and energy01 > 0.55 and vel_norm < 0
+bull_release = ta.crossover(impulse, signal) and composite > 0
+bear_release = ta.crossunder(impulse, signal) and composite < 0
+
+confirmed = not i_confirmClose or barstate.isconfirmed
+long_structure_ok = not i_requireKumo or kumo_norm > 0
+short_structure_ok = not i_requireKumo or kumo_norm < 0
+
+long_signal = (
+     confirmed and
+     i_tradeLong and
+     bull_release and
+     energy01 >= i_minEnergy and
+     persistence >= i_minAgree and
+     long_structure_ok)
+
+short_signal = (
+     confirmed and
+     i_tradeShort and
+     bear_release and
+     energy01 >= i_minEnergy and
+     persistence <= -i_minAgree and
+     short_structure_ok)
+
+long_expansion_signal = confirmed and bull_expansion and not bull_expansion[1] and long_structure_ok
+short_expansion_signal = confirmed and bear_expansion and not bear_expansion[1] and short_structure_ok
+
+if long_signal
+    if i_exitFlip and strategy.position_size < 0
+        strategy.close("SHORT", comment="Flip Long")
+    strategy.entry("LONG", strategy.long, comment="VITCO LONG")
+
+if short_signal
+    if i_exitFlip and strategy.position_size > 0
+        strategy.close("LONG", comment="Flip Short")
+    strategy.entry("SHORT", strategy.short, comment="VITCO SHORT")
+
+if i_useATRExit and strategy.position_size > 0
+    float active_long_sl = strategy.position_avg_price - atr * i_slATR
+    float active_long_tp = strategy.position_avg_price + atr * i_tpATR
+    strategy.exit("LONG EXIT", from_entry="LONG", stop=active_long_sl, limit=active_long_tp)
+
+if i_useATRExit and strategy.position_size < 0
+    float active_short_sl = strategy.position_avg_price + atr * i_slATR
+    float active_short_tp = strategy.position_avg_price - atr * i_tpATR
+    strategy.exit("SHORT EXIT", from_entry="SHORT", stop=active_short_sl, limit=active_short_tp)
+
+plotshape(i_showSignalMarks and long_signal, title="LONG Signal", text="L",
+     style=shape.triangleup, location=location.bottom,
+     color=color.new(c_bullHot, 0), textcolor=color.white, size=size.small)
+
+plotshape(i_showSignalMarks and short_signal, title="SHORT Signal", text="S",
+     style=shape.triangledown, location=location.top,
+     color=color.new(c_bearHot, 0), textcolor=color.white, size=size.small)
+
+plotshape(i_showSignalMarks and long_expansion_signal and not long_signal,
+     title="Bull Expansion", text="EXP", style=shape.circle,
+     location=location.bottom, color=color.new(c_bull, 30),
+     textcolor=color.white, size=size.tiny)
+
+plotshape(i_showSignalMarks and short_expansion_signal and not short_signal,
+     title="Bear Expansion", text="EXP", style=shape.circle,
+     location=location.top, color=color.new(c_bear, 30),
+     textcolor=color.white, size=size.tiny)
+
+if i_showLabels and long_signal
+    label.new(
+         x=bar_index,
+         y=math.min(composite, outer_bear) - 0.20,
+         text="LONG\nC " + str.tostring(composite, "#.##") +
+              " | E " + str.tostring(energy01 * 100.0, "#") + "%\nAGR " +
+              str.tostring(persistence * 100.0, "#") + "% | K " +
+              str.tostring(kumo_norm, "#.##"),
+         style=label.style_label_up,
+         color=color.new(c_bull, 12),
+         textcolor=color.white,
+         size=size.small)
+
+if i_showLabels and short_signal
+    label.new(
+         x=bar_index,
+         y=math.max(composite, outer_bull) + 0.20,
+         text="SHORT\nC " + str.tostring(composite, "#.##") +
+              " | E " + str.tostring(energy01 * 100.0, "#") + "%\nAGR " +
+              str.tostring(math.abs(persistence) * 100.0, "#") + "% | K " +
+              str.tostring(kumo_norm, "#.##"),
+         style=label.style_label_down,
+         color=color.new(c_bear, 12),
+         textcolor=color.white,
+         size=size.small)
+
+// 09 • HADO WAVE NODES
+// ============================================================================
+var WaveNode[] wave_nodes = array.new<WaveNode>()
+var line[] wave_lines = array.new_line()
+var label[] wave_labels = array.new_label()
+
+ph = ta.pivothigh(composite, i_wavLen, i_wavLen)
+pl = ta.pivotlow(composite, i_wavLen, i_wavLen)
+
+if not na(ph)
+    array.push(
+         wave_nodes,
+         WaveNode.new(
+              bar_index[i_wavLen],
+              high[i_wavLen],
+              ph,
+              "TOP"))
+
+if not na(pl)
+    array.push(
+         wave_nodes,
+         WaveNode.new(
+              bar_index[i_wavLen],
+              low[i_wavLen],
+              pl,
+              "BOT"))
+
+if array.size(wave_nodes) > 16
+    array.shift(wave_nodes)
+
+new_wave = not na(ph) or not na(pl)
+
+if i_showWav and new_wave and array.size(wave_nodes) >= 2
+    WaveNode n1 = array.get(wave_nodes, array.size(wave_nodes) - 2)
+    WaveNode n2 = array.get(wave_nodes, array.size(wave_nodes) - 1)
+
+    line wl = line.new(
+         x1=n1.barIdx,
+         y1=n1.oscVal,
+         x2=n2.barIdx,
+         y2=n2.oscVal,
+         color=color.new(c_node, 38),
+         width=1,
+         style=line.style_dashed)
+
+    label lb = label.new(
+         x=n2.barIdx,
+         y=n2.oscVal,
+         text=n2.waveType,
+         color=color.new(color.black, 78),
+         textcolor=c_node,
+         style=n2.waveType == "TOP" ?
+             label.style_label_down :
+             label.style_label_up,
+         size=size.tiny)
+
+    array.push(wave_lines, wl)
+    array.push(wave_labels, lb)
+
+    if array.size(wave_lines) > 32
+        line.delete(array.shift(wave_lines))
+
+    if array.size(wave_labels) > 32
+        label.delete(array.shift(wave_labels))
+
+// ============================================================================
+// 10 • KIHON SUCHI TIME GRID
+// ============================================================================
+var int[] kihon = array.from(9, 17, 26, 33, 42, 51, 65, 76, 129, 172)
+var int last_cross_bar = bar_index
+var line[] time_lines = array.new_line()
+
+if ta.cross(composite, 0)
+    last_cross_bar := bar_index
+
+bars_since_cross = bar_index - last_cross_bar
+is_kihon_time = array.includes(kihon, bars_since_cross)
+
+if i_showTime and is_kihon_time
+    float time_height = composite >= 0 ?
+         math.max(composite, outer_bull) :
+         math.min(composite, outer_bear)
+
+    line tl = line.new(
+         x1=bar_index,
+         y1=0,
+         x2=bar_index,
+         y2=time_height,
+         color=color.new(c_node, 52),
+         style=line.style_dotted,
+         width=1)
+
+    array.push(time_lines, tl)
+
+    if array.size(time_lines) > 48
+        line.delete(array.shift(time_lines))
+
+// ============================================================================
+// 11 • NORMALIZED FORWARD KUMO MATRIX
+// ============================================================================
+var MatrixColumn[] fwd_matrix = array.new<MatrixColumn>()
+
+if barstate.islast
+    if array.size(fwd_matrix) > 0
+        for i = 0 to array.size(fwd_matrix) - 1
+            MatrixColumn col = array.get(fwd_matrix, i)
+            box.delete(col.colBox)
+            line.delete(col.topCap)
+
+        array.clear(fwd_matrix)
+
+    if i_showFwd
+        for k = 0 to i_off - 1
+            int src_idx = i_off - 1 - k
+
+            if bar_index > i_sB + i_off
+                float historical_atr = math.max(atr[src_idx], syminfo.mintick)
+                float fut_delta_raw = sA[src_idx] - sB[src_idx]
+                float fut_delta_atr = f_safe_div(fut_delta_raw, historical_atr)
+                float fut_delta = f_softclip(fut_delta_atr, i_clip)
+                float fut_strength = f_clamp(math.abs(fut_delta) / i_clip, 0.0, 1.0)
+
+                int alpha = int(f_clamp(86.0 - fut_strength * 58.0, 20.0, 90.0))
+                color base_col = fut_delta >= 0 ?
+                     color.new(c_bull, alpha) :
+                     color.new(c_bear, alpha)
+
+                int x_left = bar_index + k + 1
+                int x_right = bar_index + k + 2
+
+                box b = box.new(
+                     left=x_left,
+                     top=math.max(fut_delta, 0.0),
+                     right=x_right,
+                     bottom=math.min(fut_delta, 0.0),
+                     bgcolor=base_col,
+                     border_color=color.new(base_col, 18),
+                     border_width=1)
+
+                line cap = line.new(
+                     x1=x_left,
+                     y1=fut_delta,
+                     x2=x_right,
+                     y2=fut_delta,
+                     color=color.new(fut_delta >= 0 ? c_bullHot : c_bearHot, 24),
+                     width=1)
+
+                array.push(
+                     fwd_matrix,
+                     MatrixColumn.new(
+                          b,
+                          cap,
+                          x_left,
+                          fut_delta,
+                          fut_strength))
+
+// ============================================================================
+// 12 • TELEMETRY / DATA CONTENT
+// ============================================================================
+next_kihon = 0
+for i = 0 to array.size(kihon) - 1
+    int candidate = array.get(kihon, i)
+    if bars_since_cross < candidate
+        next_kihon := candidate
+        break
+
+cycle_remaining = next_kihon > 0 ?
+     next_kihon - bars_since_cross :
+     0
+
+regime_text = bull_expansion ?
+     "BULL EXPANSION" :
+     bear_expansion ?
+         "BEAR EXPANSION" :
+         bull_regime ?
+             "BULL PRESSURE" :
+             bear_regime ?
+                 "BEAR PRESSURE" :
+                 "EQUILIBRIUM"
+
+regime_col = bull_regime ?
+     c_bullHot :
+     bear_regime ?
+         c_bearHot :
+         c_neutral
+
+energy_text = energy01 >= 0.75 ?
+     "EXTREME" :
+     energy01 >= 0.50 ?
+         "EXPANDING" :
+         energy01 >= 0.25 ?
+             "ACTIVE" :
+             "QUIET"
+
+agreement_pct = math.abs(persistence) * 100.0
+
+var table pnl = table.new(
+     position.bottom_right,
+     4,
+     10,
+     bgcolor=color.new(#090D14, 12),
+     border_color=color.new(#303846, 45),
+     border_width=1)
+
+if barstate.islast
+    table.cell(pnl, 0, 0, "VITCO v7.1", text_color=color.white, bgcolor=color.new(#161D29, 0), text_size=size.small)
+    table.cell(pnl, 1, 0, "VALUE", text_color=c_neutral, bgcolor=color.new(#161D29, 0), text_size=size.tiny)
+    table.cell(pnl, 2, 0, "STATE", text_color=c_neutral, bgcolor=color.new(#161D29, 0), text_size=size.tiny)
+    table.cell(pnl, 3, 0, "VECTOR", text_color=c_neutral, bgcolor=color.new(#161D29, 0), text_size=size.tiny)
+
+    table.cell(pnl, 0, 1, "Composite", text_color=color.silver, text_halign=text.align_left)
+    table.cell(pnl, 1, 1, str.tostring(composite, "#.###"), text_color=regime_col)
+    table.cell(pnl, 2, 1, regime_text, text_color=regime_col)
+    table.cell(pnl, 3, 1, composite >= 0 ? "↑" : "↓", text_color=regime_col)
+
+    table.cell(pnl, 0, 2, "T-K / ATR", text_color=color.silver, text_halign=text.align_left)
+    table.cell(pnl, 1, 2, str.tostring(tk_atr, "#.###"), text_color=tk_norm >= 0 ? c_bull : c_bear)
+    table.cell(pnl, 2, 2, "N " + str.tostring(tk_norm, "#.##"), text_color=c_neutral)
+    table.cell(pnl, 3, 2, tk_velocity >= 0 ? "ACC +" : "ACC -", text_color=tk_velocity >= 0 ? c_bull : c_bear)
+
+    table.cell(pnl, 0, 3, "Kumo / ATR", text_color=color.silver, text_halign=text.align_left)
+    table.cell(pnl, 1, 3, str.tostring(kumo_atr, "#.###"), text_color=kumo_norm >= 0 ? c_bull : c_bear)
+    table.cell(pnl, 2, 3, kumo_norm >= 0 ? "SUPPORT" : "RESIST", text_color=kumo_norm >= 0 ? c_bull : c_bear)
+    table.cell(pnl, 3, 3, str.tostring(kumo_norm, "#.##"), text_color=c_kumo)
+
+    table.cell(pnl, 0, 4, "Velocity", text_color=color.silver, text_halign=text.align_left)
+    table.cell(pnl, 1, 4, str.tostring(vel_norm, "#.###"), text_color=vel_norm >= 0 ? c_bull : c_bear)
+    table.cell(pnl, 2, 4, "A " + str.tostring(acc_norm, "#.##"), text_color=acc_norm >= 0 ? c_bull : c_bear)
+    table.cell(pnl, 3, 4, spread >= 0 ? "LEAD +" : "LEAD -", text_color=spread >= 0 ? c_bullHot : c_bearHot)
+
+    table.cell(pnl, 0, 5, "Energy", text_color=color.silver, text_halign=text.align_left)
+    table.cell(pnl, 1, 5, str.tostring(energy, "#.###"), text_color=c_signal)
+    table.cell(pnl, 2, 5, energy_text, text_color=energy01 > 0.5 ? c_signal : c_neutral)
+    table.cell(pnl, 3, 5, str.tostring(energy01 * 100.0, "#") + "%", text_color=c_signal)
+
+    table.cell(pnl, 0, 6, "Agreement", text_color=color.silver, text_halign=text.align_left)
+    table.cell(pnl, 1, 6, str.tostring(agreement_pct, "#") + "%", text_color=regime_col)
+    table.cell(pnl, 2, 6, persistence > 0 ? "BULL" : persistence < 0 ? "BEAR" : "MIXED", text_color=regime_col)
+    table.cell(pnl, 3, 6, str.tostring(persistence, "#.##"), text_color=regime_col)
+
+    table.cell(pnl, 0, 7, "Relative Volume", text_color=color.silver, text_halign=text.align_left)
+    table.cell(pnl, 1, 7, str.tostring(rel_vol, "#.##") + "x", text_color=rel_vol > 1 ? c_signal : c_neutral)
+    table.cell(pnl, 2, 7, rel_vol > 1.5 ? "IMPULSE" : rel_vol > 1 ? "ABOVE" : "BASE", text_color=rel_vol > 1 ? c_signal : c_neutral)
+    table.cell(pnl, 3, 7, str.tostring(vol_impulse, "#.##"), text_color=vol_impulse >= 0 ? c_bull : c_bear)
+
+    table.cell(pnl, 0, 8, "Efficiency", text_color=color.silver, text_halign=text.align_left)
+    table.cell(pnl, 1, 8, str.tostring(eff_raw, "#.###"), text_color=eff_raw >= 0 ? c_bull : c_bear)
+    table.cell(pnl, 2, 8, math.abs(eff_raw) > 0.5 ? "DIRECT" : "ROTATION", text_color=math.abs(eff_raw) > 0.5 ? c_signal : c_neutral)
+    table.cell(pnl, 3, 8, str.tostring(eff_norm, "#.##"), text_color=eff_norm >= 0 ? c_bull : c_bear)
+
+    table.cell(pnl, 0, 9, "Kihon Cycle", text_color=color.silver, text_halign=text.align_left)
+    table.cell(pnl, 1, 9, next_kihon > 0 ? str.tostring(cycle_remaining) + " bars" : "RESET", text_color=c_node)
+    table.cell(pnl, 2, 9, next_kihon > 0 ? "T-" + str.tostring(next_kihon) : "END", text_color=c_node)
+    table.cell(pnl, 3, 9, str.tostring(bars_since_cross), text_color=c_neutral)
+
+// ============================================================================
+// 13 • ALERT SURFACE
+// ============================================================================
+alertcondition(long_signal, "VITCO LONG", "VITCO strategy LONG gate confirmed.")
+alertcondition(short_signal, "VITCO SHORT", "VITCO strategy SHORT gate confirmed.")
+alertcondition(long_expansion_signal, "VITCO Bull Expansion", "VITCO bullish expansion regime activated.")
+alertcondition(short_expansion_signal, "VITCO Bear Expansion", "VITCO bearish expansion regime activated.")

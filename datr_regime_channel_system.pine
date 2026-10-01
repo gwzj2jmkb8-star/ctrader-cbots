@@ -1,0 +1,258 @@
+//@version=6
+// ═══════════════════════════════════════════════════════════════════════════════
+// DATR Regime Channel System  (single overlay strategy, no twin indicators)
+// Layers: Dynamic ATR (regression + price change) -> Keltner / Donchian entries
+//         -> MA (SMA/WMA/ALMA) + ADX/MACD + Heikin Ashi + Ichimoku filters
+//         -> Risk-% or Fixed-lot sizing -> Risk / Percent / ATR exits in parallel
+// ═══════════════════════════════════════════════════════════════════════════════
+strategy("DATR Regime Channel System", shorttitle="DATR-RCS", overlay=true, pyramiding=0,
+     initial_capital=10000, default_qty_type=strategy.fixed, default_qty_value=1,
+     commission_type=strategy.commission.percent, commission_value=0.05,
+     calc_on_every_tick=false, process_orders_on_close=false, max_bars_back=500)
+
+// ───────────────────────────────── 1. INPUTS ────────────────────────────────────
+const string G_SRC  = "01 · Source / Heikin Ashi"
+const string G_ATR  = "02 · Dynamic ATR (Regression + Price Change)"
+const string G_CHAN = "03 · Channels (Keltner / Donchian)"
+const string G_MA   = "04 · Trend MA (SMA / WMA / ALMA)"
+const string G_DIR  = "05 · ADX + MACD (smoothed)"
+const string G_ICHI = "06 · Ichimoku"
+const string G_SIZE = "07 · Position Sizing"
+const string G_EXIT = "08 · Exits (parallel, independent)"
+const string G_VIEW = "09 · Drawings"
+
+bool   useHaSrc    = input.bool(true, "Use Heikin Ashi close as indicator source", group=G_SRC)
+bool   useHaFilter = input.bool(true, "Filter: Heikin Ashi candle direction", group=G_SRC)
+
+int    atrLen      = input.int(14, "ATR length", minval=1, group=G_ATR)
+int    regLen      = input.int(20, "Regression / price-change window", minval=2, group=G_ATR)
+float  dynK        = input.float(0.5, "Dynamic sensitivity", minval=0.0, step=0.05, group=G_ATR)
+float  dynMin      = input.float(0.5, "Dynamic factor min", minval=0.1, step=0.05, group=G_ATR)
+float  dynMax      = input.float(2.0, "Dynamic factor max", minval=0.1, step=0.05, group=G_ATR)
+
+string chanMode    = input.string("Both", "Breakout source", options=["Donchian", "Keltner", "Both"], group=G_CHAN)
+int    kLen        = input.int(20, "Keltner EMA length", minval=1, group=G_CHAN)
+float  kMult       = input.float(1.5, "Keltner multiplier (× dynamic ATR)", minval=0.1, step=0.1, group=G_CHAN)
+int    dLen        = input.int(20, "Donchian length", minval=1, group=G_CHAN)
+
+bool   useMa       = input.bool(true, "Filter: price vs trend MA", group=G_MA)
+string maType      = input.string("ALMA", "MA type", options=["SMA", "WMA", "ALMA"], group=G_MA)
+int    maLen       = input.int(50, "MA length", minval=2, group=G_MA)
+float  almaOffset  = input.float(0.85, "ALMA offset", minval=0.0, maxval=1.0, step=0.01, group=G_MA)
+float  almaSigma   = input.float(6.0, "ALMA sigma", minval=0.1, step=0.1, group=G_MA)
+
+bool   useAdx      = input.bool(true, "Filter: ADX strength + DI direction", group=G_DIR)
+int    adxLen      = input.int(14, "DI length", minval=1, group=G_DIR)
+int    adxSmooth   = input.int(14, "ADX smoothing", minval=1, group=G_DIR)
+float  adxThr      = input.float(20.0, "ADX threshold", minval=0.0, group=G_DIR)
+bool   useMacd     = input.bool(true, "Filter: smoothed MACD histogram", group=G_DIR)
+int    macdFast    = input.int(12, "MACD fast", minval=1, group=G_DIR)
+int    macdSlow    = input.int(26, "MACD slow", minval=1, group=G_DIR)
+int    macdSig     = input.int(9, "MACD signal", minval=1, group=G_DIR)
+int    macdSmooth  = input.int(3, "Histogram EMA smoothing", minval=1, group=G_DIR)
+
+bool   useIchi     = input.bool(true, "Filter: Ichimoku cloud + Tenkan/Kijun", group=G_ICHI)
+int    tenkanLen   = input.int(9, "Tenkan length", minval=1, group=G_ICHI)
+int    kijunLen    = input.int(26, "Kijun length", minval=1, group=G_ICHI)
+int    spanBLen    = input.int(52, "Span B length", minval=1, group=G_ICHI)
+int    ichiDisp    = input.int(26, "Displacement", minval=2, group=G_ICHI)
+
+string sizeMode    = input.string("Risk %", "Sizing mode", options=["Risk %", "Fixed lot"], group=G_SIZE)
+float  riskPct     = input.float(1.0, "Risk per trade (% of equity)", minval=0.01, step=0.1, group=G_SIZE)
+float  sizeAtrMult = input.float(2.0, "Sizing stop distance (× dynamic ATR)", minval=0.1, step=0.1, group=G_SIZE)
+float  fixedQty    = input.float(1.0, "Fixed lot (contracts / units)", minval=0.0, step=0.01, group=G_SIZE)
+
+bool   useRiskExit = input.bool(true, "Risk mode exit (loss = risk amount)", group=G_EXIT)
+float  rrRatio     = input.float(2.0, "Risk mode: reward / risk", minval=0.1, step=0.1, group=G_EXIT)
+bool   usePctExit  = input.bool(true, "Percent mode exit", group=G_EXIT)
+float  slPct       = input.float(1.5, "Percent mode: SL %", minval=0.01, step=0.05, group=G_EXIT)
+float  tpPct       = input.float(3.0, "Percent mode: TP %", minval=0.01, step=0.05, group=G_EXIT)
+bool   useAtrExit  = input.bool(true, "ATR mode exit", group=G_EXIT)
+float  slAtrMult   = input.float(1.5, "ATR mode: SL (× dynamic ATR)", minval=0.1, step=0.1, group=G_EXIT)
+float  tpAtrMult   = input.float(3.0, "ATR mode: TP (× dynamic ATR)", minval=0.1, step=0.1, group=G_EXIT)
+bool   allowLong   = input.bool(true, "Allow long", group=G_EXIT)
+bool   allowShort  = input.bool(true, "Allow short", group=G_EXIT)
+
+bool   showKel     = input.bool(true, "Show Keltner", group=G_VIEW)
+bool   showDon     = input.bool(true, "Show Donchian", group=G_VIEW)
+bool   showMa      = input.bool(true, "Show trend MA", group=G_VIEW)
+bool   showIchi    = input.bool(true, "Show Ichimoku", group=G_VIEW)
+bool   showHA      = input.bool(false, "Show Heikin Ashi candles (hide chart candles)", group=G_VIEW)
+bool   showLevels  = input.bool(true, "Show entry / SL / TP lines", group=G_VIEW)
+bool   showDash    = input.bool(true, "Show dashboard", group=G_VIEW)
+
+// ─────────────────────────── 2. HEIKIN ASHI + SOURCE ────────────────────────────
+float haClose = (open + high + low + close) / 4
+var float haOpen = na
+haOpen := na(haOpen[1]) ? (open + close) / 2 : (haOpen[1] + haClose[1]) / 2
+float haHigh = math.max(high, math.max(haOpen, haClose))
+float haLow  = math.min(low, math.min(haOpen, haClose))
+float src    = useHaSrc ? haClose : close
+
+// ─────────────────────── 3. DYNAMIC ATR (REGRESSION + PRICE CHANGE) ─────────────
+float atrBase  = ta.atr(atrLen)
+float regNow   = ta.linreg(src, regLen, 0)
+float regSlope = regNow - ta.linreg(src, regLen, 1)
+float regMove  = math.abs(regSlope) * regLen
+float chgMove  = math.abs(ta.change(src, regLen))
+float trendZ   = atrBase > 0 ? ((regMove + chgMove) / 2 / atrBase) / math.sqrt(regLen) : na
+float dynFactor = na(trendZ) ? 1.0 : math.max(dynMin, math.min(dynMax, 1 + dynK * (trendZ - 1)))
+float dynATR   = atrBase * dynFactor
+
+// ───────────────────────────────── 4. CHANNELS ──────────────────────────────────
+float kBasis = ta.ema(src, kLen)
+float kUp    = kBasis + kMult * dynATR
+float kLo    = kBasis - kMult * dynATR
+float dUp    = ta.highest(high, dLen)
+float dLo    = ta.lowest(low, dLen)
+float dMid   = math.avg(dUp, dLo)
+
+// ──────────────────────────────────── 5. TREND MA ───────────────────────────────
+float maSma = ta.sma(src, maLen)
+float maWma = ta.wma(src, maLen)
+float maAlm = ta.alma(src, maLen, almaOffset, almaSigma)
+float ma    = maType == "ALMA" ? maAlm : maType == "WMA" ? maWma : maSma
+
+// ─────────────────────────────────── 6. ADX + MACD ──────────────────────────────
+[diPlus, diMinus, adxVal] = ta.dmi(adxLen, adxSmooth)
+[macdLine, macdSignal, macdHist] = ta.macd(src, macdFast, macdSlow, macdSig)
+float macdHistS = ta.ema(macdHist, macdSmooth)
+
+// ───────────────────────────────────── 7. ICHIMOKU ──────────────────────────────
+float tenkan  = math.avg(ta.highest(high, tenkanLen), ta.lowest(low, tenkanLen))
+float kijun   = math.avg(ta.highest(high, kijunLen), ta.lowest(low, kijunLen))
+float spanA   = math.avg(tenkan, kijun)
+float spanB   = math.avg(ta.highest(high, spanBLen), ta.lowest(low, spanBLen))
+float cloudTop = math.max(spanA[ichiDisp - 1], spanB[ichiDisp - 1])
+float cloudBot = math.min(spanA[ichiDisp - 1], spanB[ichiDisp - 1])
+
+// ──────────────────────────────────── 8. SIGNALS ────────────────────────────────
+bool chanLong  = chanMode == "Donchian" ? close > dUp[1] : chanMode == "Keltner" ? close > kUp : (close > dUp[1] and close > kUp)
+bool chanShort = chanMode == "Donchian" ? close < dLo[1] : chanMode == "Keltner" ? close < kLo : (close < dLo[1] and close < kLo)
+
+bool maLong    = not useMa or close > ma
+bool maShort   = not useMa or close < ma
+bool adxLong   = not useAdx or (adxVal > adxThr and diPlus > diMinus)
+bool adxShort  = not useAdx or (adxVal > adxThr and diMinus > diPlus)
+bool macdLong  = not useMacd or macdHistS > 0
+bool macdShort = not useMacd or macdHistS < 0
+bool haLong    = not useHaFilter or haClose > haOpen
+bool haShort   = not useHaFilter or haClose < haOpen
+bool ichiLong  = not useIchi or (close > cloudTop and tenkan > kijun)
+bool ichiShort = not useIchi or (close < cloudBot and tenkan < kijun)
+
+bool longCond  = allowLong and chanLong and maLong and adxLong and macdLong and haLong and ichiLong
+bool shortCond = allowShort and chanShort and maShort and adxShort and macdShort and haShort and ichiShort
+bool longSig   = longCond and not longCond[1]
+bool shortSig  = shortCond and not shortCond[1]
+
+// ─────────────────────────────────── 9. POSITION SIZING ─────────────────────────
+float riskAmt  = strategy.equity * riskPct / 100
+float refDist  = dynATR * sizeAtrMult
+float qtyRaw   = refDist > 0 ? riskAmt / (refDist * syminfo.pointvalue) : na
+float qtyRisk  = na(qtyRaw) ? 0.0 : math.floor(qtyRaw / syminfo.mincontract) * syminfo.mincontract
+float qty      = sizeMode == "Risk %" ? qtyRisk : fixedQty
+
+// ──────────────────────────────────── 10. ENTRIES ───────────────────────────────
+if longSig and qty > 0
+    strategy.entry("Long", strategy.long, qty=qty)
+if shortSig and qty > 0
+    strategy.entry("Short", strategy.short, qty=qty)
+
+// ───────────────────── 11. EXIT LEVELS (snapshot at actual fill) ────────────────
+var float entryPx = na
+var float slRisk  = na
+var float tpRisk  = na
+var float slPctLv = na
+var float tpPctLv = na
+var float slAtrLv = na
+var float tpAtrLv = na
+
+bool newPos = strategy.position_size != 0 and math.sign(strategy.position_size) != math.sign(nz(strategy.position_size[1]))
+if newPos
+    float dir      = math.sign(strategy.position_size)
+    float px       = strategy.position_avg_price
+    float q        = math.abs(strategy.position_size)
+    float atrEntry = nz(dynATR[1], dynATR)
+    float riskDist = riskAmt[1] / (q * syminfo.pointvalue)
+    entryPx := px
+    slRisk  := px - dir * riskDist
+    tpRisk  := px + dir * riskDist * rrRatio
+    slPctLv := px * (1 - dir * slPct / 100)
+    tpPctLv := px * (1 + dir * tpPct / 100)
+    slAtrLv := px - dir * atrEntry * slAtrMult
+    tpAtrLv := px + dir * atrEntry * tpAtrMult
+else if strategy.position_size == 0
+    entryPx := na
+    slRisk  := na
+    tpRisk  := na
+    slPctLv := na
+    tpPctLv := na
+    slAtrLv := na
+    tpAtrLv := na
+
+// ─────────────── 12. PARALLEL INDIVIDUAL EXITS (first level hit closes) ─────────
+if strategy.position_size != 0
+    string entryId = strategy.position_size > 0 ? "Long" : "Short"
+    if useRiskExit
+        strategy.exit("Risk", entryId, stop=slRisk, limit=tpRisk)
+    if usePctExit
+        strategy.exit("Percent", entryId, stop=slPctLv, limit=tpPctLv)
+    if useAtrExit
+        strategy.exit("ATR", entryId, stop=slAtrLv, limit=tpAtrLv)
+
+// ───────────────────────────────── 13. DRAWINGS ─────────────────────────────────
+pKelUp = plot(kUp, "Keltner Upper", color=color.new(color.blue, 10), display=showKel ? display.all : display.none)
+pKelLo = plot(kLo, "Keltner Lower", color=color.new(color.blue, 10), display=showKel ? display.all : display.none)
+fill(pKelUp, pKelLo, color=color.new(color.blue, showKel ? 93 : 100), title="Keltner Fill")
+
+plot(dUp,  "Donchian Upper",  color=color.new(color.orange, 20), display=showDon ? display.all : display.none)
+plot(dLo,  "Donchian Lower",  color=color.new(color.orange, 20), display=showDon ? display.all : display.none)
+plot(dMid, "Donchian Middle", color=color.new(color.orange, 60), style=plot.style_circles, display=showDon ? display.all : display.none)
+
+plot(ma, "Trend MA", color=color.new(color.aqua, 0), linewidth=2, display=showMa ? display.all : display.none)
+
+plot(tenkan, "Tenkan", color=color.new(#2962FF, 0), display=showIchi ? display.all : display.none)
+plot(kijun,  "Kijun",  color=color.new(#B71C1C, 0), display=showIchi ? display.all : display.none)
+plot(close,  "Chikou", color=color.new(color.gray, 30), offset=-(ichiDisp - 1), display=showIchi ? display.all : display.none)
+pSpanA = plot(spanA, "Span A", color=color.new(color.green, 50), offset=ichiDisp - 1, display=showIchi ? display.all : display.none)
+pSpanB = plot(spanB, "Span B", color=color.new(color.red, 50), offset=ichiDisp - 1, display=showIchi ? display.all : display.none)
+fill(pSpanA, pSpanB, color=showIchi ? (spanA >= spanB ? color.new(color.green, 88) : color.new(color.red, 88)) : color.new(color.gray, 100), title="Ichimoku Cloud")
+
+plotcandle(haOpen, haHigh, haLow, haClose, "Heikin Ashi",
+     color=haClose >= haOpen ? color.new(color.teal, 0) : color.new(color.maroon, 0),
+     wickcolor=haClose >= haOpen ? color.teal : color.maroon,
+     bordercolor=haClose >= haOpen ? color.teal : color.maroon,
+     display=showHA ? display.all : display.none)
+
+plot(entryPx, "Entry", color=color.new(color.white, 0), style=plot.style_linebr, display=showLevels ? display.all : display.none)
+plot(useRiskExit ? slRisk : na, "SL Risk",    color=color.new(color.red, 0),    style=plot.style_linebr, display=showLevels ? display.all : display.none)
+plot(useRiskExit ? tpRisk : na, "TP Risk",    color=color.new(color.green, 0),  style=plot.style_linebr, display=showLevels ? display.all : display.none)
+plot(usePctExit ? slPctLv : na, "SL Percent", color=color.new(color.maroon, 0), style=plot.style_circles, display=showLevels ? display.all : display.none)
+plot(usePctExit ? tpPctLv : na, "TP Percent", color=color.new(color.lime, 0),   style=plot.style_circles, display=showLevels ? display.all : display.none)
+plot(useAtrExit ? slAtrLv : na, "SL ATR",     color=color.new(color.fuchsia, 0), style=plot.style_cross, display=showLevels ? display.all : display.none)
+plot(useAtrExit ? tpAtrLv : na, "TP ATR",     color=color.new(color.yellow, 0),  style=plot.style_cross, display=showLevels ? display.all : display.none)
+
+plotshape(longSig and qty > 0,  "Long Signal",  shape.triangleup,   location.belowbar, color.new(color.lime, 0), size=size.small)
+plotshape(shortSig and qty > 0, "Short Signal", shape.triangledown, location.abovebar, color.new(color.red, 0),  size=size.small)
+
+// ─────────────────────────────────── 14. DASHBOARD ──────────────────────────────
+var table dash = table.new(position.top_right, 2, 8, frame_color=color.gray, frame_width=1, border_width=1)
+if barstate.islast and showDash
+    color bg = color.new(color.black, 15)
+    table.cell(dash, 0, 0, "Dynamic ATR",  text_color=color.white, bgcolor=bg, text_size=size.small)
+    table.cell(dash, 1, 0, str.tostring(dynATR, format.mintick) + "  (×" + str.tostring(dynFactor, "0.00") + ")", text_color=color.white, bgcolor=bg, text_size=size.small)
+    table.cell(dash, 0, 1, "Trend Z",      text_color=color.white, bgcolor=bg, text_size=size.small)
+    table.cell(dash, 1, 1, str.tostring(trendZ, "0.00"), text_color=color.white, bgcolor=bg, text_size=size.small)
+    table.cell(dash, 0, 2, "ADX / DI",     text_color=color.white, bgcolor=bg, text_size=size.small)
+    table.cell(dash, 1, 2, str.tostring(adxVal, "0.0") + (diPlus > diMinus ? "  ▲" : "  ▼"), text_color=diPlus > diMinus ? color.lime : color.red, bgcolor=bg, text_size=size.small)
+    table.cell(dash, 0, 3, "MACD hist (sm)", text_color=color.white, bgcolor=bg, text_size=size.small)
+    table.cell(dash, 1, 3, str.tostring(macdHistS, "0.0000"), text_color=macdHistS > 0 ? color.lime : color.red, bgcolor=bg, text_size=size.small)
+    table.cell(dash, 0, 4, "Heikin Ashi",  text_color=color.white, bgcolor=bg, text_size=size.small)
+    table.cell(dash, 1, 4, haClose > haOpen ? "Bull" : "Bear", text_color=haClose > haOpen ? color.lime : color.red, bgcolor=bg, text_size=size.small)
+    table.cell(dash, 0, 5, "Ichimoku",     text_color=color.white, bgcolor=bg, text_size=size.small)
+    table.cell(dash, 1, 5, close > cloudTop ? "Above cloud" : close < cloudBot ? "Below cloud" : "In cloud", text_color=close > cloudTop ? color.lime : close < cloudBot ? color.red : color.yellow, bgcolor=bg, text_size=size.small)
+    table.cell(dash, 0, 6, "Next size",    text_color=color.white, bgcolor=bg, text_size=size.small)
+    table.cell(dash, 1, 6, str.tostring(qty, "0.####"), text_color=color.white, bgcolor=bg, text_size=size.small)
+    table.cell(dash, 0, 7, "Position",     text_color=color.white, bgcolor=bg, text_size=size.small)
+    table.cell(dash, 1, 7, strategy.position_size > 0 ? "Long" : strategy.position_size < 0 ? "Short" : "Flat", text_color=strategy.position_size > 0 ? color.lime : strategy.position_size < 0 ? color.red : color.gray, bgcolor=bg, text_size=size.small)

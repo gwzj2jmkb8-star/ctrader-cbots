@@ -1,0 +1,110 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0.
+// © ClassicPotatoChamberXII
+//@version=6
+// @description Synthetic HA geometry and causal relative-volume measurements.
+library("EP_Candles")
+
+// Call once, unconditionally, on standard OHLC. Previous BAR values deliberately
+// prevent fill recalculations from advancing the HA recurrence a second time.
+export heikinAshi(float o, float h, float l, float c) =>
+    float hc = (o + h + l + c) * 0.25
+    var float ho = na
+    ho := na(ho[1]) ? (o + c) * 0.5 : (ho[1] + hc[1]) * 0.5
+    [ho, math.max(h, math.max(ho, hc)), math.min(l, math.min(ho, hc)), hc]
+
+// Reference excludes the current bar. No fake neutral volume during warmup,
+// missing feeds or a zero-volume baseline. Zero current volume is valid.
+export relativeVolume(float v, simple int length) =>
+    float baseline = ta.sma(v, length)[1]
+    bool valid = not na(v) and v >= 0.0 and not na(baseline) and baseline > 0.0
+    [valid ? v / baseline : na, baseline, valid]
+
+// OHLC close-location allocation is a proxy, NOT bid/ask volume or order flow.
+export buyShare(float h, float l, float c) =>
+    h > l ? math.max(0.0, math.min(1.0, (c - l) / (h - l))) : 0.5
+
+export bodyFraction(float o, float h, float l, float c) =>
+    h > l ? math.max(0.0, math.min(1.0, math.abs(c - o) / (h - l))) : 0.0
+
+// Candle strength is geometry, not a trade or aggressor-volume classification.
+export anatomy(float o, float h, float l, float c, float tick, float bodyThreshold, float wickToleranceTicks) =>
+    float body = bodyFraction(o, h, l, c)
+    float upper = math.max(0.0, h - math.max(o, c))
+    float lower = math.max(0.0, math.min(o, c) - l)
+    float tolerance = math.max(wickToleranceTicks, 0.0) * tick
+    bool strongUp = c > o and body >= bodyThreshold and lower <= tolerance
+    bool strongDown = c < o and body >= bodyThreshold and upper <= tolerance
+    [body, upper, lower, strongUp, strongDown]
+
+// Relative width is an overlay design, not a claim to replicate native chart spacing.
+export volumeWidth(float relativeVolume, float widthAtOne, float exponent) =>
+    float width = na(relativeVolume) ? widthAtOne : widthAtOne * math.pow(math.max(relativeVolume, 0.0), math.max(exponent, 0.0))
+    math.max(0.06, math.min(0.92, width))
+
+export type VolumeCanvas
+    array<box> upperBodies
+    array<box> lowerBodies
+    array<line> wicks
+    int lastStamp = na
+
+export createCanvas() =>
+    VolumeCanvas.new(array.new_box(), array.new_box(), array.new_line())
+
+export drawVolume(
+    VolumeCanvas canvas,
+    int stamp,
+    int duration,
+    float o,
+    float h,
+    float l,
+    float c,
+    float widthFraction,
+    float buyFraction,
+    bool splitProxy,
+    color directionInk,
+    color buyInk,
+    color sellInk,
+    int alpha,
+    int capacity
+) =>
+    int retained = math.max(1, math.min(capacity, 100))
+    // Reuse IDs on the same bar and recycle the oldest IDs when the pool is full.
+    box upperBody = na
+    box lowerBody = na
+    line candleWick = na
+    if canvas.lastStamp == stamp and array.size(canvas.wicks) > 0
+        upperBody := array.pop(canvas.upperBodies)
+        lowerBody := array.pop(canvas.lowerBodies)
+        candleWick := array.pop(canvas.wicks)
+    else if array.size(canvas.wicks) >= retained
+        upperBody := array.shift(canvas.upperBodies)
+        lowerBody := array.shift(canvas.lowerBodies)
+        candleWick := array.shift(canvas.wicks)
+    while array.size(canvas.wicks) >= retained
+        box.delete(array.shift(canvas.upperBodies))
+        box.delete(array.shift(canvas.lowerBodies))
+        line.delete(array.shift(canvas.wicks))
+    int halfWidth = int(math.max(1.0, duration * widthFraction * 0.5))
+    float top = math.max(o, c)
+    float bottom = math.min(o, c)
+    float split = splitProxy ? bottom + (top - bottom) * math.max(0.0, math.min(1.0, buyFraction)) : bottom
+    if na(candleWick)
+        candleWick := line.new(stamp, l, stamp, h, xloc=xloc.bar_time)
+        upperBody := box.new(stamp - halfWidth, top, stamp + halfWidth, split, xloc=xloc.bar_time)
+        lowerBody := box.new(stamp - halfWidth, split, stamp + halfWidth, bottom, xloc=xloc.bar_time)
+    line.set_xy1(candleWick, stamp, l)
+    line.set_xy2(candleWick, stamp, h)
+    line.set_color(candleWick, directionInk)
+    box.set_lefttop(upperBody, stamp - halfWidth, top)
+    box.set_rightbottom(upperBody, stamp + halfWidth, split)
+    box.set_bgcolor(upperBody, color.new(splitProxy ? sellInk : directionInk, alpha))
+    box.set_border_color(upperBody, directionInk)
+    box.set_lefttop(lowerBody, stamp - halfWidth, split)
+    box.set_rightbottom(lowerBody, stamp + halfWidth, bottom)
+    box.set_bgcolor(lowerBody, color.new(buyInk, splitProxy ? alpha : 100))
+    box.set_border_color(lowerBody, splitProxy ? directionInk : color.new(directionInk, 100))
+    array.push(canvas.wicks, candleWick)
+    array.push(canvas.upperBodies, upperBody)
+    array.push(canvas.lowerBodies, lowerBody)
+    canvas.lastStamp := stamp
+    canvas

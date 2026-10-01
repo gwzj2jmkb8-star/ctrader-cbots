@@ -1,0 +1,85 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © ClassicPotatoChamberXII
+
+//@version=6
+// @description The Render Engine for ETHER POISON.
+// Translates professional market data into the Nocturne / HoloVR Experience.
+
+import EP_Math as math_ep
+import EP_Types as types_ep
+
+// =============================================================================
+// 01. THE NOCTURNE PALETTE (THE DARKNESS)
+// =============================================================================
+color C_VOID          = color.rgb(5, 5, 15)        // Deepest space
+color C_SHADOW       = color.rgb(20, 20, 35, 60)   // Translucent gloom
+color C_POISON_GREEN  = color.rgb(0, 255, 128, 20) // Glowing toxin
+color C_BLOOD_RED    = color.rgb(159, 18, 60, 20)  // Cursed fate
+color C_ETHER_TEAL    = color.rgb(20, 184, 166, 30) // Holographic flux
+color C_GHOST_WHITE   = color.rgb(220, 220, 255, 80) // Spectral echo
+// color C_FVG_CLOUD = input.color(color.new(color.white, 50)) // editable by user
+// make sure we use more colours and all of them are editable by user, strict dont use sort of green and red, instead we make maroon and teal at several transaprency levels and tone sensitivity levels..
+
+
+// =============================================================================
+// 02. THE HOLOGRAPHIC PROJECTION (Toxicity -> Visuals)
+// =============================================================================
+
+f_get_toxicity_color(types_ep.Toxicity tox) =>
+    switch tox
+        types_ep.Toxicity.LETHAL    => C_POISON_GREEN
+        types_ep.Toxicity.VIRAL     => C_ETHER_TEAL
+        types_ep.Toxicity.DORMANT   => color.rgb(60, 60, 80, 50)
+        types_ep.Toxicity.STABLE    => color.rgb(30, 30, 40, 80)
+        => color.gray
+
+// =============================================================================
+// 03. THE NOCTURNE RENDERER
+// =============================================================================
+
+// This function would be called by the Master Orchestrator
+f_render_nocturne(float spanA, float spanB, float rapidA, float rapidB, types_ep.Toxicity currentTox) =>
+    // 1. The Dual-Span Shadow Cloud
+    // We render the space between A and B as a "Curtain of Gloom"
+    color cloudCol = f_get_toxicity_color(currentTox)
+    
+    // Professional Drawing: Fill the void between spans
+    // (In a real master script, this would use plotfill)
+    
+    // 2. The Rapid Expansion "Tearing"
+    // When Toxicity is LETHAL, the rapid spans glow intensely
+    color rapidCol = currentTox == types_ep.Toxicity.LETHAL ? C_POISON_GREEN : C_SHADOW
+    
+    // 3. The Time-Rail Neon Threads
+    // We render the grid as a holographic projection
+    color railCol = currentTox == types_ep.Toxicity.VIRAL ? C_ETHER_TEAL : C_GHOST_WHITE
+
+// =============================================================================
+// 04. THE PSYCH-DASHBOARD (HoloVR Interface)
+// =============================================================================
+
+f_render_cockpit(types_ep.KineticState state, types_ep.Permission perm) =>
+    var table cockpit = table.new(position.top_right, 2, 5, bgcolor=C_VOID, border_width=1, border_color=C_SHADOW)
+    
+    if barstate.islast
+        // Header: The Entity Name
+        table.cell(cockpit, 0, 0, "ETHER", text_color=C_GHOST_WHITE, text_size=size.small)
+        table.cell(cockpit, 1, 0, "POISON", text_color=C_POISON_GREEN, text_size=size.small)
+        
+        // Row 1: Toxicity State
+        table.cell(cockpit, 0, 1, "TOXICITY", text_color=C_GHOST_WHITE, text_size=size.tiny)
+        table.cell(cockpit, 1, 1, str.tostring(state.toxicity), bgcolor=f_get_toxicity_color(state.toxicity), text_size=size.tiny)
+        
+        // Row 2: Energy Flow
+        table.cell(cockpit, 0, 2, "FLOW", text_color=C_GHOST_WHITE, text_size=size.tiny)
+        table.cell(cockpit, 1, 2, str.tostring(state.flow), text_color=C_ETHER_TEAL, text_size=size.tiny)
+        
+        // Row 3: Permission
+        table.cell(cockpit, 0, 3, "PERMIT", text_color=C_GHOST_WHITE, text_size=size.tiny)
+        table.cell(cockpit, 1, 3, str.tostring(perm), text_color=perm == types_ep.Permission.OFFENSIVE ? C_POISON_GREEN : C_BLOOD_RED, text_size=size.tiny)
+        
+        // Row 4: Conviction magnitude
+        table.cell(cockpit, 0, 4, "CONVICTION", text_color=C_GHOST_WHITE, text_size=size.tiny)
+        table.cell(cockpit, 1, 4, str.tostring(state.conviction * 100, "#.0") + "%", text_color=C_GHOST_WHITE, text_size=size.tiny)
+
+// Export for Master

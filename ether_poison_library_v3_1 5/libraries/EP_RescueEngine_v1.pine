@@ -1,0 +1,52 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0.
+// © ClassicPotatoChamberXII
+//@version=6
+// @description Recovery math and explicit state from 03_RESCUE_ENGINE and final variants.
+library("EP_RescueEngine")
+import ClassicPotatoChamberXII/EP_Types/4 as epTypes
+
+export f_calc_rescue_qty(float current_qty, float current_avg, float rescue_price, float target_avg, bool isLong) =>
+    float denominator = isLong ? target_avg - rescue_price : rescue_price - target_avg
+    float numerator = isLong ? current_qty * (current_avg - target_avg) : current_qty * (target_avg - current_avg)
+    denominator > 0.0 and numerator > 0.0 ? numerator / denominator : 0.0
+
+export quantity(float currentQuantity, float currentAverage, float rescuePrice, float targetAverage, bool isLong, float maximumMultiple) =>
+    float raw = f_calc_rescue_qty(currentQuantity, currentAverage, rescuePrice, targetAverage, isLong)
+    math.min(raw, currentQuantity * math.max(maximumMultiple, 0.0))
+
+export adverseDistance(float entryPrice, float price, bool isLong) =>
+    isLong ? entryPrice - price : price - entryPrice
+
+export f_check_rescue_window(float entryPrice, bool isLong, float minimumDistance) =>
+    float atr = ta.atr(14)
+    adverseDistance(entryPrice, close, isLong) > minimumDistance * atr
+
+// Explicit caller-owned state replaces the fragment's hidden global rState.
+// This legacy API calculates a proposal, never submits a broker order.
+export f_execute_rescue(epTypes.RescueState state, float entryPrice, float currentQty, bool isLong, float minimumDistance, float targetTicks, int maximumCycles) =>
+    bool window = f_check_rescue_window(entryPrice, isLong, minimumDistance)
+    float target = isLong ? close + targetTicks * syminfo.mintick : close - targetTicks * syminfo.mintick
+    float addQty = 0.0
+    if window and state.cycles < maximumCycles
+        addQty := f_calc_rescue_qty(currentQty, entryPrice, close, target, isLong)
+        state.cycles += 1
+        state.lastRescuePrice := close
+        state.isRecovering := true
+    addQty
+
+export f_check_harvest(float entryPrice, float currentQty, bool isLong, float kineticMagnitude, float harvestPercent) =>
+    float profit = isLong ? close - entryPrice : entryPrice - close
+    profit > 0.0 and kineticMagnitude < 0.3 ? currentQty * harvestPercent / 100.0 : 0.0
+
+// Historical Final has a persistent cycle counter, distinct from shard rState.
+// Caller passes its counter explicitly; retain increment-on-window semantics.
+export f_handle_rescue(float entry, float qty, bool isLong, float minimumDistance, float targetTicks, int maximumCycles, int cycles) =>
+    float atr = ta.atr(14)
+    float distance = adverseDistance(entry, close, isLong)
+    int nextCycles = cycles
+    float result = 0.0
+    if distance > minimumDistance * atr and cycles < maximumCycles
+        float target = isLong ? close + targetTicks * syminfo.mintick : close - targetTicks * syminfo.mintick
+        result := f_calc_rescue_qty(qty, entry, close, target, isLong)
+        nextCycles += 1
+    [result, nextCycles]

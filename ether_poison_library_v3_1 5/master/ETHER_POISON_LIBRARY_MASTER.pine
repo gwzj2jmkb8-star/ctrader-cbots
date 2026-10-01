@@ -1,0 +1,1253 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0.
+// © ClassicPotatoChamberXII
+//@version=6
+strategy("ETHER | Spatial Energy Matrix v3.3 · Volume / FVG Clouds", overlay=true, initial_capital=10000,
+     default_qty_type=strategy.percent_of_equity, default_qty_value=10,
+     pyramiding=10, commission_type=strategy.commission.percent,
+     commission_value=0.04, slippage=1, process_orders_on_close=true,
+     calc_on_order_fills=true, backtest_fill_limits_assumption=0, max_lines_count=500, max_boxes_count=300,
+     max_labels_count=400, behind_chart=false, explicit_plot_zorder=true)
+
+// Local source contract only. Publication versions are configured in imports.json.
+// Publish dependencies first; substitute ACTUAL assigned versions before use.
+import ClassicPotatoChamberXII/EP_Math/3 as epMath
+import ClassicPotatoChamberXII/EP_Types/4 as epTypes
+import ClassicPotatoChamberXII/EP_Engines/3 as epEngines
+import ClassicPotatoChamberXII/EP_Nocturne/2 as nocturne
+import ClassicPotatoChamberXII/EP_KineticCore/1 as epKinetic
+import ClassicPotatoChamberXII/EP_SpatialGates/1 as epSpatial
+import ClassicPotatoChamberXII/EP_RescueEngine/1 as epRescue
+import ClassicPotatoChamberXII/EP_SpaceTimeGrid/1 as epGrid
+import ClassicPotatoChamberXII/EP_Candles/2 as epCandles
+import ClassicPotatoChamberXII/EP_ExecutionLedger/1 as epLedger
+import ClassicPotatoChamberXII/EP_MarketOrders/1 as epMarket
+import ClassicPotatoChamberXII/EP_LimitOrders/1 as epLimit
+import ClassicPotatoChamberXII/EP_CloudScreen/1 as epCloud
+
+const string G_BASIS = "01 | Instrument basis"
+int atrLength = input.int(14, "ATR length", minval=2, group=G_BASIS)
+int momentumLength = input.int(14, "Momentum horizon", minval=2, group=G_BASIS)
+float kineticScale = input.float(2.5, "Kinetic saturation", minval=0.1, step=0.1, group=G_BASIS)
+int pivotLeft = input.int(5, "Pivot left", minval=1, group=G_BASIS)
+int pivotRight = input.int(5, "Pivot right", minval=1, group=G_BASIS)
+
+const string G_STRUCTURE = "02 | FVG and structure"
+float minimumFvgAtr = input.float(0.15, "Minimum FVG (ATR)", minval=0.0, step=0.05, group=G_STRUCTURE)
+int zoneLifetime = input.int(80, "Zone lifetime (bars)", minval=1, maxval=500, group=G_STRUCTURE)
+int structureWindow = input.int(12, "Structure gate window", minval=1, maxval=100, group=G_STRUCTURE)
+float chochAtr = input.float(0.25, "CHoCH displacement (ATR)", minval=0.0, step=0.05, group=G_STRUCTURE)
+
+const string G_CONTEXT = "03 | Clouds, waves and reversion"
+int tenkanLength = input.int(9, "Classical Tenkan", minval=1, group=G_CONTEXT)
+int kijunLength = input.int(26, "Classical Kijun", minval=1, group=G_CONTEXT)
+int spanBLength = input.int(52, "Classical Span B", minval=2, group=G_CONTEXT)
+int cloudDisplacement = input.int(26, "Front displacement", minval=1, maxval=100, group=G_CONTEXT)
+int rapidLength = input.int(9, "Rapid cloud horizon", minval=2, group=G_CONTEXT)
+float rapidExpansion = input.float(0.65, "Rapid expansion (ATR)", minval=0.0, step=0.05, group=G_CONTEXT)
+int superBollLength = input.int(34, "SuperBoll length", minval=5, group=G_CONTEXT)
+float superBollDeviation = input.float(2.0, "SuperBoll deviation", minval=0.1, step=0.1, group=G_CONTEXT)
+int timeRailLength = input.int(21, "Time-wave rail", minval=3, group=G_CONTEXT)
+int volatilityFastLength = input.int(13, "Volatility cloud fast", minval=2, group=G_CONTEXT)
+int volatilitySlowLength = input.int(34, "Volatility cloud slow", minval=3, group=G_CONTEXT)
+float volatilityCloudAtr = input.float(0.35, "Volatility cloud ATR contour", minval=0.0, step=0.05, group=G_CONTEXT)
+
+const string G_MULTIPLEXER = "03A | Multiplexer Cloud"
+bool multiplexerEnabled = input.bool(true, "Enable Multiplexer Cloud", group=G_MULTIPLEXER)
+int multiplexerFastLength = input.int(8, "Fast entropy density", minval=2, inline="mux1", group=G_MULTIPLEXER)
+int multiplexerMediumLength = input.int(21, "Medium", minval=3, inline="mux1", group=G_MULTIPLEXER)
+int multiplexerSlowLength = input.int(55, "Slow", minval=4, inline="mux1", group=G_MULTIPLEXER)
+float multiplexerTemperature = input.float(1.35, "Entropy temperature", minval=0.0, step=0.05, inline="mux2", group=G_MULTIPLEXER)
+float multiplexerAttenFloor = input.float(0.18, "Atten floor", minval=0.0, maxval=1.0, step=0.01, inline="mux2", group=G_MULTIPLEXER)
+float multiplexerContourAtr = input.float(1.0, "Cloud contour (ATR)", minval=0.0, step=0.05, group=G_MULTIPLEXER)
+bool multiplexerGateEnabled = input.bool(false, "Govern entries with Multiplexer quality", group=G_MULTIPLEXER, tooltip="Opt-in directional quality gate. Off preserves the established execution logic.")
+float multiplexerMaximumEntropy = input.float(0.72, "Maximum entropy", minval=0.0, maxval=1.0, step=0.01, inline="mux3", group=G_MULTIPLEXER)
+float multiplexerMinimumConfidence = input.float(0.35, "Minimum confidence", minval=0.0, maxval=1.0, step=0.01, inline="mux3", group=G_MULTIPLEXER)
+float multiplexerMinimumAtten = input.float(0.20, "Minimum temp_atten", minval=0.0, maxval=1.0, step=0.01, group=G_MULTIPLEXER)
+
+const string G_SCORE = "04 | Transparent score"
+float entryThreshold = input.float(0.62, "Entry threshold", minval=0.0, maxval=1.0, step=0.01, group=G_SCORE)
+float weightEnergy = input.float(1.0, "Energy", minval=0.0, step=0.1, inline="w1", group=G_SCORE)
+float weightFvg = input.float(1.0, "FVG", minval=0.0, step=0.1, inline="w1", group=G_SCORE)
+float weightStructure = input.float(1.0, "Structure", minval=0.0, step=0.1, inline="w2", group=G_SCORE)
+float weightReversion = input.float(0.6, "Reversion", minval=0.0, step=0.1, inline="w2", group=G_SCORE)
+float weightCloud = input.float(0.8, "Cloud", minval=0.0, step=0.1, inline="w3", group=G_SCORE)
+float weightBreakout = input.float(0.8, "Breakout", minval=0.0, step=0.1, inline="w3", group=G_SCORE)
+float weightWave = input.float(0.6, "Wave", minval=0.0, step=0.1, inline="w4", group=G_SCORE)
+float weightMultiplexer = input.float(0.0, "Multiplexer", minval=0.0, step=0.1, inline="w4", group=G_SCORE, tooltip="Zero preserves the prior score exactly; raise to opt in.")
+
+const string G_RISK = "05 | Execution and rescue"
+float stopAtr = input.float(1.8, "Stop (ATR)", minval=0.1, step=0.1, group=G_RISK)
+float targetAtr = input.float(3.0, "Target (ATR)", minval=0.1, step=0.1, group=G_RISK)
+bool rescueEnabled = input.bool(false, "Enable bounded rescue", group=G_RISK)
+float rescueAdverseAtr = input.float(1.25, "Rescue adverse distance", minval=0.1, step=0.05, group=G_RISK)
+float rescueTargetTicks = input.float(8.0, "Target average offset (ticks)", minval=1.0, step=1.0, group=G_RISK)
+float rescueMaximumMultiple = input.float(0.5, "Maximum add / position", minval=0.0, maxval=2.0, step=0.1, group=G_RISK)
+int rescueMaximumCycles = input.int(2, "Maximum cycles", minval=0, maxval=10, group=G_RISK)
+int rescueCooldown = input.int(8, "Cycle cooldown", minval=1, group=G_RISK)
+float harvestPercent = input.float(40.0, "Exhaustion harvest (%)", minval=1.0, maxval=100.0, group=G_RISK)
+
+const string G_VISUAL = "06 | Professional visual field"
+bool showClassicalCloud = input.bool(true, "Classical front cloud", group=G_VISUAL)
+bool showRapidCloud = input.bool(true, "Rapid expansion cloud", group=G_VISUAL)
+bool showFvgCloud = input.bool(true, "FVG / iFVG value cloud", group=G_VISUAL)
+bool showSuperBoll = input.bool(true, "Mean-reversion envelope", group=G_VISUAL)
+bool showVolatilityCloud = input.bool(true, "Two-length volatility cloud", group=G_VISUAL)
+bool showTimeRails = input.bool(true, "Time rails and wave signs", group=G_VISUAL)
+bool showStructure = input.bool(true, "BOS / CHoCH signs", group=G_VISUAL)
+bool showDashboard = input.bool(true, "Instrument board", group=G_VISUAL)
+bool showFrontGrid = input.bool(true, "Projected price/time grid", group=G_VISUAL)
+bool showFvgBoxes = input.bool(true, "Projected FVG boxes", group=G_VISUAL)
+bool showPositionGeometry = input.bool(true, "Entry / stop / target geometry", group=G_VISUAL)
+bool showEventTags = input.bool(true, "Bounded event tags", group=G_VISUAL)
+bool showNocturneAtmosphere = input.bool(true, "Nocturne atmosphere", group=G_VISUAL)
+bool showEnergyBarTint = input.bool(true, "Energy candle tint", group=G_VISUAL)
+bool showEventHalos = input.bool(true, "Event halo signs", group=G_VISUAL)
+bool showMultiplexerProjection = input.bool(true, "Multiplexer density projection", group=G_VISUAL)
+bool showEntropyTransitions = input.bool(true, "Entropy/lane transition tags", group=G_VISUAL)
+bool showFibonacciDepth = input.bool(true, "Fibonacci depth rails", group=G_VISUAL)
+bool showGannFan = input.bool(true, "Gann projection fan", group=G_VISUAL)
+bool showTimeTheory = input.bool(true, "Event-anchored time theory", group=G_VISUAL)
+string dashboardMode = input.string("Full", "Dashboard density", options=["Compact", "Full"], group=G_VISUAL)
+int frontGridRows = input.int(6, "Front grid rows", minval=2, maxval=10, group=G_VISUAL)
+int frontGridColumns = input.int(4, "Front grid columns", minval=2, maxval=8, group=G_VISUAL)
+int maximumEventTags = input.int(24, "Maximum event tags", minval=4, maxval=80, group=G_VISUAL)
+
+const string G_STYLE_CLOUD = "07A | Palette — clouds"
+color tenkanColor = input.color(color.rgb(33, 231, 184), "Tenkan", inline="ichi0", group=G_STYLE_CLOUD)
+color kijunColor = input.color(color.rgb(225, 182, 79), "Kijun", inline="ichi0", group=G_STYLE_CLOUD)
+color classicalAColor = input.color(color.rgb(24, 214, 166), "Ichi Span A", inline="ichi1", group=G_STYLE_CLOUD)
+color classicalBColor = input.color(color.rgb(190, 45, 86), "Span B", inline="ichi1", group=G_STYLE_CLOUD)
+color classicalBullFill = input.color(color.new(color.rgb(24, 214, 166), 84), "Ichi Bull Fill", inline="ichi2", group=G_STYLE_CLOUD)
+color classicalBearFill = input.color(color.new(color.rgb(190, 45, 86), 84), "Bear Fill", inline="ichi2", group=G_STYLE_CLOUD)
+color rapidAColor = input.color(color.rgb(151, 120, 255), "Rapid Span A", inline="rapid1", group=G_STYLE_CLOUD)
+color rapidBColor = input.color(color.rgb(91, 68, 214), "Span B", inline="rapid1", group=G_STYLE_CLOUD)
+color rapidFillColor = input.color(color.new(color.rgb(122, 92, 255), 88), "Rapid Fill", group=G_STYLE_CLOUD)
+color volatilityAColor = input.color(color.rgb(54, 173, 255), "Volatility Span A", inline="vol1", group=G_STYLE_CLOUD)
+color volatilityBColor = input.color(color.rgb(231, 91, 190), "Span B", inline="vol1", group=G_STYLE_CLOUD)
+color volatilityFillColor = input.color(color.new(color.rgb(95, 115, 220), 89), "Volatility Fill", group=G_STYLE_CLOUD)
+color multiplexerAColor = input.color(color.rgb(0, 232, 196), "Multiplexer Span A", inline="muxc1", group=G_STYLE_CLOUD)
+color multiplexerBColor = input.color(color.rgb(238, 86, 154), "Span B", inline="muxc1", group=G_STYLE_CLOUD)
+color multiplexerCenterColor = input.color(color.rgb(212, 220, 238), "Center", inline="muxc2", group=G_STYLE_CLOUD)
+color multiplexerFillColor = input.color(color.new(color.rgb(59, 142, 255), 90), "Fill", inline="muxc2", group=G_STYLE_CLOUD)
+string cloudPlotStyle = input.string("Line", "Cloud line shape", options=["Line", "Stepline", "Circles"], group=G_STYLE_CLOUD)
+int cloudLineWidth = input.int(1, "Cloud line width", minval=1, maxval=4, group=G_STYLE_CLOUD)
+
+const string G_STYLE_FVG = "07B | Palette — FVG and reversion"
+color bullFvgTopColor = input.color(color.rgb(24, 214, 166), "Bull FVG Top", inline="bfvg", group=G_STYLE_FVG)
+color bullFvgBottomColor = input.color(color.rgb(11, 139, 111), "Bottom", inline="bfvg", group=G_STYLE_FVG)
+color bearFvgTopColor = input.color(color.rgb(190, 45, 86), "Bear FVG Top", inline="sfvg", group=G_STYLE_FVG)
+color bearFvgBottomColor = input.color(color.rgb(122, 25, 58), "Bottom", inline="sfvg", group=G_STYLE_FVG)
+color bullFvgFillColor = input.color(color.new(color.rgb(24, 214, 166), 86), "Bull FVG Fill", inline="ffill", group=G_STYLE_FVG)
+color bearFvgFillColor = input.color(color.new(color.rgb(190, 45, 86), 86), "Bear Fill", inline="ffill", group=G_STYLE_FVG)
+color superBollBasisColor = input.color(color.rgb(225, 182, 79), "SuperBoll Basis", inline="sb1", group=G_STYLE_FVG)
+color superBollUpperColor = input.color(color.rgb(213, 70, 108), "Upper", inline="sb1", group=G_STYLE_FVG)
+color superBollLowerColor = input.color(color.rgb(28, 196, 157), "Lower", inline="sb1", group=G_STYLE_FVG)
+color superBollFillColor = input.color(color.new(color.rgb(27, 34, 50), 90), "SuperBoll Fill", group=G_STYLE_FVG)
+string fvgPlotStyle = input.string("Line break", "FVG line shape", options=["Line", "Line break", "Stepline", "Circles"], group=G_STYLE_FVG)
+int fvgLineWidth = input.int(1, "FVG line width", minval=1, maxval=4, group=G_STYLE_FVG)
+int superBollLineWidth = input.int(1, "SuperBoll line width", minval=1, maxval=4, group=G_STYLE_FVG)
+
+const string G_STYLE_DRAW = "07C | Palette — rails and drawings"
+color timeRailColor = input.color(color.rgb(225, 182, 79), "Time Rail", inline="rail", group=G_STYLE_DRAW)
+color waveBullColor = input.color(color.rgb(24, 214, 166), "Wave Bull", inline="wave", group=G_STYLE_DRAW)
+color waveBearColor = input.color(color.rgb(190, 45, 86), "Bear", inline="wave", group=G_STYLE_DRAW)
+color structureBullColor = input.color(color.rgb(24, 214, 166), "Structure Bull", inline="structure", group=G_STYLE_DRAW)
+color structureBearColor = input.color(color.rgb(190, 45, 86), "Bear", inline="structure", group=G_STYLE_DRAW)
+color chochColor = input.color(color.rgb(225, 182, 79), "CHoCH", inline="events", group=G_STYLE_DRAW)
+color inversionColor = input.color(color.rgb(122, 92, 255), "iFVG", inline="events", group=G_STYLE_DRAW)
+color fibonacciColor = input.color(color.rgb(122, 92, 255), "Fibonacci", inline="spatial", group=G_STYLE_DRAW)
+color gannColor = input.color(color.rgb(225, 182, 79), "Gann", inline="spatial", group=G_STYLE_DRAW)
+color gridColor = input.color(color.rgb(115, 127, 148), "Grid", inline="spatial2", group=G_STYLE_DRAW)
+color timeTheoryColor = input.color(color.rgb(59, 142, 255), "Time Theory", inline="spatial2", group=G_STYLE_DRAW)
+color entryLineColor = input.color(color.rgb(225, 182, 79), "Entry", inline="position", group=G_STYLE_DRAW)
+color stopLineColor = input.color(color.rgb(213, 70, 108), "Stop", inline="position", group=G_STYLE_DRAW)
+color targetLineColor = input.color(color.rgb(28, 196, 157), "Target", inline="position", group=G_STYLE_DRAW)
+color nocturneVoidColor = input.color(color.rgb(5, 7, 14), "Nocturne Void", inline="night", group=G_STYLE_DRAW)
+color nocturneSpectralColor = input.color(color.rgb(104, 92, 180), "Spectral", inline="night", group=G_STYLE_DRAW)
+int nocturneLightAlpha = input.int(64, "Strong density alpha", minval=0, maxval=100, inline="nighta", group=G_STYLE_DRAW)
+int nocturneDarkAlpha = input.int(96, "Weak density alpha", minval=0, maxval=100, inline="nighta", group=G_STYLE_DRAW)
+string drawingLineStyle = input.string("Dashed", "Projection line shape", options=["Solid", "Dashed", "Dotted"], group=G_STYLE_DRAW)
+int drawingLineWidth = input.int(1, "Projection line width", minval=1, maxval=4, group=G_STYLE_DRAW)
+
+const string G_CANDLE = "08 | HA and relative-volume candles"
+string candleMode = input.string("HA + relative volume", "Candle layer", options=["Off", "Heikin Ashi", "HA + relative volume", "Price + relative volume"], group=G_CANDLE)
+int volumeFastLength = input.int(8, "Relative volume fast", minval=1, group=G_CANDLE)
+int volumeMediumLength = input.int(21, "Relative volume medium", minval=1, group=G_CANDLE)
+int volumeSlowLength = input.int(55, "Relative volume slow", minval=1, group=G_CANDLE)
+float volumeStrongLevel = input.float(1.5, "Strong relative volume", minval=0.0, step=0.1, group=G_CANDLE)
+float volumeClimaxLevel = input.float(2.5, "Climax relative volume", minval=0.0, step=0.1, group=G_CANDLE)
+float candleStrongBody = input.float(0.55, "Strong HA body/range", minval=0.0, maxval=1.0, step=0.05, group=G_CANDLE)
+bool showVolumeDivisions = input.bool(true, "Divide recent bodies by volume proxy", group=G_CANDLE, tooltip="Close-location allocation of total volume. Not measured buyer/seller volume.")
+int volumeDivisionBars = input.int(40, "Divided candles retained", minval=1, maxval=60, group=G_CANDLE)
+bool showCandleBoard = input.bool(true, "HA / volume board", group=G_CANDLE)
+bool candleGateEnabled = input.bool(false, "Require HA direction and relative volume for entries", group=G_CANDLE)
+float candleGateRvol = input.float(1.0, "Entry minimum medium relative volume", minval=0.0, step=0.1, group=G_CANDLE)
+color candleBullColor = input.color(color.rgb(24, 214, 166), "Bull candle", group=G_CANDLE)
+color candleBearColor = input.color(color.rgb(190, 45, 86), "Bear candle", group=G_CANDLE)
+color candleNeutralColor = input.color(color.rgb(115, 127, 148), "Neutral / missing volume", group=G_CANDLE)
+
+const string G_CANDLE_FEED = "08A | Candle feed and volume width"
+string haDisplaySource = input.string("TradingView HA", "HA display source", options=["TradingView HA", "Local legacy HA"], group=G_CANDLE_FEED)
+string candleSession = input.string("Chart session", "Candle feed session", options=["Chart session", "Regular"], group=G_CANDLE_FEED)
+bool volumeWidthEnabled = input.bool(true, "Volume-scaled candle bodies", group=G_CANDLE_FEED)
+int volumeWidthBars = input.int(60, "Volume-width candles retained", group=G_CANDLE_FEED, tooltip="Draws the latest 1–100 candles within the platform object budget.")
+float volumeWidthAtOne = input.float(0.45, "Body width at RVOL 1", group=G_CANDLE_FEED)
+float volumeWidthPower = input.float(0.5, "Volume width response", group=G_CANDLE_FEED, tooltip="0.5 uses square-root RVOL scaling. Drawing width stays within its time slot.")
+float haWickTolerance = input.float(1.0, "HA absent-wick tolerance in ticks", group=G_CANDLE_FEED)
+
+const string G_CLOUD_SCREEN = "07D | FVG cloud screening"
+string fvgCloudMode = input.string("Mitigation cloud", "FVG cloud geometry", options=["Mitigation cloud", "Original spans"], group=G_CLOUD_SCREEN)
+string fvgScreenMode = input.string("All live", "Cloud display filter", options=["All live", "Passing screen", "All tracked"], group=G_CLOUD_SCREEN)
+bool showFvgOriginalEnvelope = input.bool(true, "Show original gap envelope", group=G_CLOUD_SCREEN)
+bool showFvgMidpoints = input.bool(true, "Show original gap midpoint", group=G_CLOUD_SCREEN)
+bool showFvgScreen = input.bool(true, "Cloud screening table", group=G_CLOUD_SCREEN)
+bool screenAllowInverted = input.bool(true, "Include inverted clouds", group=G_CLOUD_SCREEN)
+float screenMinimumRemaining = input.float(0.0, "Screen: minimum remaining gap %", group=G_CLOUD_SCREEN)
+float screenMinimumWidth = input.float(0.0, "Screen: minimum birth width ATR", group=G_CLOUD_SCREEN)
+float screenMinimumRvol = input.float(0.0, "Screen: minimum birth RVOL", group=G_CLOUD_SCREEN)
+float screenMaximumDistance = input.float(0.0, "Screen: maximum distance ATR (0 off)", group=G_CLOUD_SCREEN)
+bool screenRequireStructure = input.bool(false, "Screen: require structure at birth", group=G_CLOUD_SCREEN)
+int cloudStrongAlpha = input.int(72, "Unfilled cloud transparency", group=G_CLOUD_SCREEN)
+int cloudFaintAlpha = input.int(95, "Mitigated cloud transparency", group=G_CLOUD_SCREEN)
+
+const string G_ORDERS = "08B | Market / Limit engines"
+string orderMode = input.string("Market", "Entry and rescue order type", options=["Market", "Limit"], group=G_ORDERS, tooltip="Market keeps the established engine. Limit pre-places a resting entry or rescue order. Protective exits remain active.")
+string limitPriceBasis = input.string("FVG midpoint", "Entry limit price", options=["FVG midpoint", "FVG near edge", "ATR from close", "Ticks from close"], group=G_ORDERS)
+float limitOffsetAtr = input.float(0.25, "Entry offset ATR", minval=0.01, step=0.05, group=G_ORDERS)
+int limitOffsetTicks = input.int(10, "Entry offset ticks", minval=1, group=G_ORDERS)
+int limitLifetime = input.int(12, "Pending lifetime in bars", minval=1, maxval=500, group=G_ORDERS, tooltip="At least one bar. Unfilled orders expire at the close of the expiry bar.")
+bool limitCancelOnOpposite = input.bool(true, "Cancel on opposite approved setup", group=G_ORDERS)
+bool limitCancelOnZoneChange = input.bool(true, "Cancel FVG-priced entry when zone changes", group=G_ORDERS)
+bool limitAllowReversal = input.bool(true, "Allow opposite-side limit reversal", group=G_ORDERS)
+float limitRescueOffsetAtr = input.float(0.25, "Rescue limit offset ATR", minval=0.01, step=0.05, group=G_ORDERS)
+bool showLimitOrders = input.bool(true, "Pending limit line and labels", group=G_ORDERS)
+bool showLimitHistory = input.bool(true, "Limit placed / filled / cancelled labels", group=G_ORDERS)
+int limitHistoryLabels = input.int(40, "Limit history labels retained", minval=1, maxval=80, group=G_ORDERS, tooltip="Drawing allocation supports 1–80 retained labels.")
+bool showOrderBoard = input.bool(true, "Order engine board", group=G_ORDERS)
+color limitBuyColor = input.color(color.rgb(20, 184, 166), "Buy limit", group=G_ORDERS)
+color limitSellColor = input.color(color.rgb(150, 45, 85), "Sell limit", group=G_ORDERS)
+color limitCancelColor = input.color(color.rgb(135, 140, 155), "Cancelled / expired", group=G_ORDERS)
+
+const string G_LEDGER = "09 | Transaction labels"
+bool showTradeLabels = input.bool(true, "BUY / SELL filled-trade labels", group=G_LEDGER)
+int maximumTradeLabels = input.int(120, "Retained trade labels", minval=1, maxval=200, group=G_LEDGER)
+color exitProfitColor = input.color(color.rgb(24, 180, 155), "Profitable exit", group=G_LEDGER)
+color exitLossColor = input.color(color.rgb(135, 40, 75), "Losing exit", group=G_LEDGER)
+color exitFlatColor = input.color(color.rgb(115, 127, 148), "Flat exit", group=G_LEDGER)
+
+const string G_KNOWLEDGE = "10 | Library knowledge and legacy diagnostics"
+bool showKnowledgeBoard = input.bool(true, "Show reusable shard state", group=G_KNOWLEDGE)
+float legacyLethal = input.float(0.85, "Lethal threshold", group=G_KNOWLEDGE)
+float legacyViral = input.float(0.60, "Viral threshold", group=G_KNOWLEDGE)
+float legacyFvgAtr = input.float(0.5, "Legacy strict FVG ATR", group=G_KNOWLEDGE)
+int legacyStructureLength = input.int(5, "Legacy pivot lookback", minval=1, group=G_KNOWLEDGE)
+float legacyChochAtr = input.float(1.2, "Legacy CHoCH ATR", group=G_KNOWLEDGE)
+int legacySpanA = input.int(9, "Legacy accumulation length", minval=1, group=G_KNOWLEDGE)
+int legacySpanB = input.int(26, "Legacy distribution length", minval=1, group=G_KNOWLEDGE)
+float legacyRapidPercent = input.float(1.5, "Legacy rapid percent", group=G_KNOWLEDGE)
+int legacyBollLength = input.int(20, "Legacy SMA SuperBoll length", minval=1, group=G_KNOWLEDGE)
+float legacyBollMultiple = input.float(2.0, "Legacy SMA SuperBoll deviation", group=G_KNOWLEDGE)
+int legacyWaveLength = input.int(21, "Legacy wave-energy length", minval=1, group=G_KNOWLEDGE)
+float legacyHarvestPercent = input.float(50.0, "Legacy profitable harvest (%)", group=G_KNOWLEDGE)
+color knowledgeText = input.color(color.rgb(220, 220, 235), "Knowledge text", group=G_KNOWLEDGE)
+color knowledgeTeal = input.color(color.rgb(20, 184, 166), "Knowledge teal", group=G_KNOWLEDGE)
+color knowledgeMaroon = input.color(color.rgb(135, 35, 70), "Knowledge maroon", group=G_KNOWLEDGE)
+color knowledgeDormant = input.color(color.rgb(60, 60, 80, 50), "Knowledge dormant", group=G_KNOWLEDGE)
+color knowledgeStable = input.color(color.rgb(30, 30, 40, 80), "Knowledge stable", group=G_KNOWLEDGE)
+
+color C_DARK = color.rgb(8, 11, 18)
+color C_BULL = color.rgb(24, 214, 166)
+color C_BEAR = color.rgb(190, 45, 86)
+color C_RAPID = color.rgb(122, 92, 255)
+color C_GOLD = color.rgb(225, 182, 79)
+color C_MUTED = color.rgb(115, 127, 148)
+color C_PANEL = color.rgb(13, 18, 29)
+color C_BLUE = color.rgb(59, 142, 255)
+
+cloudStyle = cloudPlotStyle == "Stepline" ? plot.style_stepline : cloudPlotStyle == "Circles" ? plot.style_circles : plot.style_line
+fvgStyle = fvgPlotStyle == "Stepline" ? plot.style_stepline : fvgPlotStyle == "Circles" ? plot.style_circles : fvgPlotStyle == "Line break" ? plot.style_linebr : plot.style_line
+drawingStyle = drawingLineStyle == "Solid" ? line.style_solid : drawingLineStyle == "Dotted" ? line.style_dotted : line.style_dashed
+
+[haOpen, haHigh, haLow, haClose] = epCandles.heikinAshi(open, high, low, close)
+[rvolFast, volumeFastBasis, volumeFastValid] = epCandles.relativeVolume(volume, volumeFastLength)
+[rvolMedium, volumeMediumBasis, volumeMediumValid] = epCandles.relativeVolume(volume, volumeMediumLength)
+[rvolSlow, volumeSlowBasis, volumeSlowValid] = epCandles.relativeVolume(volume, volumeSlowLength)
+float volumeBuyShare = epCandles.buyShare(high, low, close)
+float haBodyFraction = epCandles.bodyFraction(haOpen, haHigh, haLow, haClose)
+bool haBull = haClose > haOpen
+bool haBear = haClose < haOpen
+bool strongHaBody = haBodyFraction >= candleStrongBody
+bool strongVolume = volumeMediumValid and rvolMedium >= volumeStrongLevel
+bool climaxVolume = volumeMediumValid and rvolMedium >= math.max(volumeClimaxLevel, volumeStrongLevel)
+bool candleLongGate = not candleGateEnabled or (haBull and volumeMediumValid and rvolMedium >= candleGateRvol)
+bool candleShortGate = not candleGateEnabled or (haBear and volumeMediumValid and rvolMedium >= candleGateRvol)
+
+// Display-only feed: documented ticker.heikinashi + request.security tuple.
+// The original local HA recurrence and optional execution gate remain above.
+string candleBaseTicker = ticker.new(syminfo.prefix, syminfo.ticker, candleSession == "Regular" ? session.regular : syminfo.session)
+string candleHaTicker = ticker.heikinashi(candleBaseTicker)
+[marketCandleOpen, marketCandleHigh, marketCandleLow, marketCandleClose, marketCandleVolume] = request.security(
+    candleBaseTicker,
+    timeframe.period,
+    [open, high, low, close, volume],
+    gaps=barmerge.gaps_on,
+    lookahead=barmerge.lookahead_off
+)
+[tvHaOpen, tvHaHigh, tvHaLow, tvHaClose] = request.security(
+    candleHaTicker,
+    timeframe.period,
+    [open, high, low, close],
+    gaps=barmerge.gaps_on,
+    lookahead=barmerge.lookahead_off
+)
+float displayHaOpen = haDisplaySource == "TradingView HA" ? tvHaOpen : haOpen
+float displayHaHigh = haDisplaySource == "TradingView HA" ? tvHaHigh : haHigh
+float displayHaLow = haDisplaySource == "TradingView HA" ? tvHaLow : haLow
+float displayHaClose = haDisplaySource == "TradingView HA" ? tvHaClose : haClose
+[displayRvolFast, displayVolumeFastBasis, displayVolumeFastValid] = epCandles.relativeVolume(marketCandleVolume, volumeFastLength)
+[displayRvolMedium, displayVolumeMediumBasis, displayVolumeMediumValid] = epCandles.relativeVolume(marketCandleVolume, volumeMediumLength)
+[displayRvolSlow, displayVolumeSlowBasis, displayVolumeSlowValid] = epCandles.relativeVolume(marketCandleVolume, volumeSlowLength)
+[displayBodyFraction, displayUpperWick, displayLowerWick, displayStrongBull, displayStrongBear] = epCandles.anatomy(
+    displayHaOpen,
+    displayHaHigh,
+    displayHaLow,
+    displayHaClose,
+    syminfo.mintick,
+    candleStrongBody,
+    haWickTolerance
+)
+float displayVolumeBuyShare = epCandles.buyShare(marketCandleHigh, marketCandleLow, marketCandleClose)
+bool displayHaBull = displayHaClose > displayHaOpen
+bool displayHaBear = displayHaClose < displayHaOpen
+bool displayStrongVolume = displayVolumeMediumValid and displayRvolMedium >= volumeStrongLevel
+bool displayClimaxVolume = displayVolumeMediumValid and displayRvolMedium >= math.max(volumeClimaxLevel, volumeStrongLevel)
+
+float atr = ta.atr(atrLength)
+float kinetic = epEngines.kineticMagnitude(close, nz(close[momentumLength], close), atr, kineticScale)
+float signedEnergy = close >= nz(close[momentumLength], close) ? kinetic : -kinetic
+
+float pivotHigh = ta.pivothigh(high, pivotLeft, pivotRight)
+float pivotLow = ta.pivotlow(low, pivotLeft, pivotRight)
+var float lastPivotHigh = na
+var float lastPivotLow = na
+var int structureDirection = 0
+if not na(pivotHigh)
+    lastPivotHigh := pivotHigh
+if not na(pivotLow)
+    lastPivotLow := pivotLow
+
+bool bosBull = not na(lastPivotHigh) and ta.crossover(close, lastPivotHigh)
+bool bosBear = not na(lastPivotLow) and ta.crossunder(close, lastPivotLow)
+bool chochBull = bosBull and structureDirection < 0 and close - lastPivotHigh >= atr * chochAtr
+bool chochBear = bosBear and structureDirection > 0 and lastPivotLow - close >= atr * chochAtr
+if bosBull
+    structureDirection := 1
+if bosBear
+    structureDirection := -1
+var int lastStructureEventBar = na
+var float lastStructureEventPrice = na
+var int lastStructureEventDirection = 0
+if bosBull or bosBear or chochBull or chochBear
+    lastStructureEventBar := bar_index
+    lastStructureEventPrice := close
+    lastStructureEventDirection := bosBull or chochBull ? 1 : -1
+int bullStructureAge = nz(ta.barssince(bosBull or chochBull), 100000)
+int bearStructureAge = nz(ta.barssince(bosBear or chochBear), 100000)
+bool bullStructureGate = bullStructureAge <= structureWindow
+bool bearStructureGate = bearStructureAge <= structureWindow
+
+[newBullFvg, newBearFvg] = epSpatial.detectFvg(high, low, high[2], low[2], atr, minimumFvgAtr)
+var float bullFvgTop = na
+var float bullFvgBottom = na
+var int bullFvgBar = na
+var bool bullFvgInverted = false
+var float bearFvgTop = na
+var float bearFvgBottom = na
+var int bearFvgBar = na
+var bool bearFvgInverted = false
+if newBullFvg
+    bullFvgTop := low
+    bullFvgBottom := high[2]
+    bullFvgBar := bar_index
+    bullFvgInverted := false
+if newBearFvg
+    bearFvgTop := low[2]
+    bearFvgBottom := high
+    bearFvgBar := bar_index
+    bearFvgInverted := false
+bool bullFvgAgeValid = not na(bullFvgBar) and bar_index - bullFvgBar <= zoneLifetime
+bool bearFvgAgeValid = not na(bearFvgBar) and bar_index - bearFvgBar <= zoneLifetime
+bool bullIfvgEvent = bullFvgAgeValid and not bullFvgInverted and ta.crossunder(close, bullFvgBottom)
+bool bearIfvgEvent = bearFvgAgeValid and not bearFvgInverted and ta.crossover(close, bearFvgTop)
+if bullIfvgEvent
+    bullFvgInverted := true
+if bearIfvgEvent
+    bearFvgInverted := true
+bool bullFvgLive = bullFvgAgeValid and not bullFvgInverted and low > bullFvgBottom
+bool bearFvgLive = bearFvgAgeValid and not bearFvgInverted and high < bearFvgTop
+
+// Latest bull/bear visual cloud packets. These never modify signal/order state.
+var epCloud.Cloud bullScreenCloud = epCloud.create()
+var epCloud.Cloud bearScreenCloud = epCloud.create()
+if barstate.isconfirmed
+    epCloud.observe(
+        bullScreenCloud,
+        true,
+        bullFvgBar,
+        bullFvgTop,
+        bullFvgBottom,
+        high,
+        low,
+        bullFvgInverted,
+        bullFvgAgeValid,
+        bar_index,
+        atr,
+        rvolMedium,
+        bullStructureGate
+    )
+    epCloud.observe(
+        bearScreenCloud,
+        false,
+        bearFvgBar,
+        bearFvgTop,
+        bearFvgBottom,
+        high,
+        low,
+        bearFvgInverted,
+        bearFvgAgeValid,
+        bar_index,
+        atr,
+        rvolMedium,
+        bearStructureGate
+    )
+string bullCloudState = epCloud.stateName(bullScreenCloud)
+string bearCloudState = epCloud.stateName(bearScreenCloud)
+string bullCloudRejection = epCloud.rejection(bullScreenCloud, close, atr, screenMinimumRemaining, screenMinimumWidth, screenMinimumRvol, screenMaximumDistance, screenRequireStructure, screenAllowInverted)
+string bearCloudRejection = epCloud.rejection(bearScreenCloud, close, atr, screenMinimumRemaining, screenMinimumWidth, screenMinimumRvol, screenMaximumDistance, screenRequireStructure, screenAllowInverted)
+float bullCloudRemaining = epCloud.remaining(bullScreenCloud)
+float bearCloudRemaining = epCloud.remaining(bearScreenCloud)
+bool bullScreenVisible = bullScreenCloud.exists and (fvgScreenMode == "All tracked" or fvgScreenMode == "Passing screen" and bullCloudRejection == "PASS" or fvgScreenMode == "All live" and not bullScreenCloud.expired and (bullScreenCloud.inverted ? screenAllowInverted : bullCloudRemaining > 0.0))
+bool bearScreenVisible = bearScreenCloud.exists and (fvgScreenMode == "All tracked" or fvgScreenMode == "Passing screen" and bearCloudRejection == "PASS" or fvgScreenMode == "All live" and not bearScreenCloud.expired and (bearScreenCloud.inverted ? screenAllowInverted : bearCloudRemaining > 0.0))
+
+
+[tenkan, kijun, classicalA, classicalB] = epGrid.classical(high, low, tenkanLength, kijunLength, spanBLength)
+[rapidCenter, rapidWidth, rapidA, rapidB] = epGrid.rapid(hlc3, atr, kinetic, rapidLength, rapidExpansion)
+[volatilityFastBasis, volatilitySlowBasis, volatilityContour, volatilitySpanA, volatilitySpanB] = epGrid.volatility(hlc3, atr, signedEnergy, volatilityFastLength, volatilitySlowLength, volatilityCloudAtr)
+
+// temp_atten: entropy-temperature attenuation requested for the Multiplexer.
+// Three independently measured densities select the dominant cloud horizon.
+epTypes.CloudState multiplexer = epEngines.multiplexerCloud(close, atr,
+     multiplexerFastLength, multiplexerMediumLength, multiplexerSlowLength,
+     multiplexerTemperature, multiplexerAttenFloor, multiplexerContourAtr)
+float temp_atten = multiplexer.tempAtten
+bool multiplexerQuality = multiplexerEnabled and multiplexer.valid and multiplexer.entropyComposite <= multiplexerMaximumEntropy and multiplexer.confidence >= multiplexerMinimumConfidence and temp_atten >= multiplexerMinimumAtten
+bool multiplexerLongGate = not multiplexerGateEnabled or multiplexerQuality and multiplexer.direction > 0.0
+bool multiplexerShortGate = not multiplexerGateEnabled or multiplexerQuality and multiplexer.direction < 0.0
+float multiplexerLongEffect = multiplexerEnabled and multiplexer.valid and multiplexer.direction > 0.0 ? multiplexer.confidence * temp_atten : 0.0
+float multiplexerShortEffect = multiplexerEnabled and multiplexer.valid and multiplexer.direction < 0.0 ? multiplexer.confidence * temp_atten : 0.0
+
+[sbBasis, sbDeviation, sbUpper, sbLower] = epGrid.reversion(close, superBollLength, superBollDeviation)
+float zScore = epEngines.zScore(close, superBollLength)
+bool volatilityLong = ta.crossover(close, sbUpper)
+bool volatilityShort = ta.crossunder(close, sbLower)
+float rail = ta.vwap(hlc3)
+float wave = epGrid.wave(close, timeRailLength)
+bool waveLong = wave > 0.0 and wave > wave[1]
+bool waveShort = wave < 0.0 and wave < wave[1]
+
+float bullFvgEffect = bullFvgLive and not bullFvgInverted ? 1.0 : 0.0
+float bearFvgEffect = bearFvgLive and not bearFvgInverted ? 1.0 : 0.0
+float bullStructureEffect = bullStructureGate ? 1.0 : 0.0
+float bearStructureEffect = bearStructureGate ? 1.0 : 0.0
+float bullReversionEffect = zScore < -1.0 ? math.min(math.abs(zScore) / 3.0, 1.0) : 0.0
+float bearReversionEffect = zScore > 1.0 ? math.min(math.abs(zScore) / 3.0, 1.0) : 0.0
+float bullCloudEffect = close > math.max(classicalA, classicalB) ? 1.0 : 0.0
+float bearCloudEffect = close < math.min(classicalA, classicalB) ? 1.0 : 0.0
+float totalWeight = weightEnergy + weightFvg + weightStructure + weightReversion + weightCloud + weightBreakout + weightWave + weightMultiplexer
+float longPoints = math.max(signedEnergy, 0.0) * weightEnergy + bullFvgEffect * weightFvg + bullStructureEffect * weightStructure + bullReversionEffect * weightReversion + bullCloudEffect * weightCloud + (volatilityLong ? 1.0 : 0.0) * weightBreakout + (waveLong ? 1.0 : 0.0) * weightWave + multiplexerLongEffect * weightMultiplexer
+float shortPoints = math.max(-signedEnergy, 0.0) * weightEnergy + bearFvgEffect * weightFvg + bearStructureEffect * weightStructure + bearReversionEffect * weightReversion + bearCloudEffect * weightCloud + (volatilityShort ? 1.0 : 0.0) * weightBreakout + (waveShort ? 1.0 : 0.0) * weightWave + multiplexerShortEffect * weightMultiplexer
+float longScore = epMath.weightedMean(longPoints, totalWeight)
+float shortScore = epMath.weightedMean(shortPoints, totalWeight)
+float scoreAgreement = math.max(longScore, shortScore)
+float scoreConflict = math.min(longScore, shortScore)
+float scoreEdge = longScore - shortScore
+bool scoreReady = totalWeight > 0.0
+bool longApproved = barstate.isconfirmed and scoreReady and bullFvgEffect > 0.0 and bullStructureGate and multiplexerLongGate and candleLongGate and longScore >= entryThreshold and longScore > shortScore
+bool shortApproved = barstate.isconfirmed and scoreReady and bearFvgEffect > 0.0 and bearStructureGate and multiplexerShortGate and candleShortGate and shortScore >= entryThreshold and shortScore > longScore
+
+// ── Separate order engines: Market is the existing path; Limit is a resting ticket.
+varip epLimit.Ticket limitTicket = epLimit.create()
+varip float limitObservedPosition = 0.0
+varip int limitObservedClosed = 0
+varip int limitClosedScanCursor = 0
+varip int limitRescueCycles = 0
+varip int limitLastRescueBar = na
+varip int limitLastHarvestBar = na
+bool limitFillPass = strategy.position_size != limitObservedPosition or strategy.closedtrades != limitObservedClosed
+bool limitDirectionChanged = math.sign(strategy.position_size) != math.sign(limitObservedPosition)
+if limitDirectionChanged
+    limitRescueCycles := 0
+    limitLastRescueBar := na
+limitObservedPosition := strategy.position_size
+limitObservedClosed := strategy.closedtrades
+
+// Resolve fills FIRST. Merely seeing a high/low touch never manufactures a fill.
+bool limitFillDetected = false
+float limitActualFillPrice = na
+int limitActualFillTime = na
+if limitTicket.active
+    if strategy.opentrades > 0
+        for leg = 0 to strategy.opentrades - 1
+            if strategy.opentrades.entry_id(leg) == limitTicket.id
+                limitFillDetected := true
+                limitActualFillPrice := strategy.opentrades.entry_price(leg)
+                limitActualFillTime := strategy.opentrades.entry_time(leg)
+    int scanStart = math.max(limitClosedScanCursor, nz(strategy.closedtrades.first_index, 0))
+    if strategy.closedtrades > scanStart
+        for leg = scanStart to strategy.closedtrades - 1
+            if strategy.closedtrades.entry_id(leg) == limitTicket.id
+                limitFillDetected := true
+                limitActualFillPrice := strategy.closedtrades.entry_price(leg)
+                limitActualFillTime := strategy.closedtrades.entry_time(leg)
+limitClosedScanCursor := strategy.closedtrades
+if limitFillDetected
+    if limitTicket.kind == "RESCUE"
+        limitRescueCycles += 1
+        limitLastRescueBar := bar_index
+    epLimit.finish(limitTicket, "FILLED", "Broker emulator confirmed the fill", limitActualFillPrice, bar_index, limitActualFillTime)
+
+// MARKET ENTRY ENGINE — original eligibility and order IDs.
+if orderMode == "Market"
+    if epMarket.entryEligible(longApproved, true, strategy.position_size)
+        strategy.entry("LONG", strategy.long)
+    if epMarket.entryEligible(shortApproved, false, strategy.position_size)
+        strategy.entry("SHORT", strategy.short)
+
+// Original market rescue state is retained separately from the limit counters.
+var int rescueCycles = 0
+var int lastRescueBar = na
+bool openedPosition = strategy.position_size != 0 and strategy.position_size[1] == 0
+bool closedPosition = strategy.position_size == 0 and strategy.position_size[1] != 0
+if openedPosition or closedPosition
+    rescueCycles := 0
+    lastRescueBar := na
+bool inPosition = strategy.position_size != 0
+bool positionLong = strategy.position_size > 0
+float adverseDistance = inPosition ? (positionLong ? strategy.position_avg_price - close : close - strategy.position_avg_price) : 0.0
+bool rescueWindow = rescueEnabled and inPosition and adverseDistance >= atr * rescueAdverseAtr and rescueCycles < rescueMaximumCycles and (na(lastRescueBar) or bar_index - lastRescueBar >= rescueCooldown)
+float targetAverage = positionLong ? close + rescueTargetTicks * syminfo.mintick : close - rescueTargetTicks * syminfo.mintick
+float rescueQuantity = epEngines.rescueQuantity(math.abs(strategy.position_size), strategy.position_avg_price, close, targetAverage, positionLong, rescueMaximumMultiple)
+bool exhaustion = inPosition and kinetic < 0.22 and kinetic[1] >= 0.22
+
+// MARKET RESCUE ENGINE — original market sizing/cycle semantics.
+if orderMode == "Market" and epMarket.rescueEligible(rescueWindow, rescueQuantity)
+    strategy.order("RESCUE_" + str.tostring(rescueCycles + 1), positionLong ? strategy.long : strategy.short, qty=rescueQuantity)
+    rescueCycles += 1
+    lastRescueBar := bar_index
+
+// LIMIT ENGINE — one pending entry OR rescue, frozen price/quantity, no chasing.
+bool limitIsFvgPrice = limitPriceBasis == "FVG midpoint" or limitPriceBasis == "FVG near edge"
+bool limitZoneStillValid = limitTicket.isLong ? bullFvgAgeValid and not bullFvgInverted and bullFvgBar == limitTicket.zoneAtArm : bearFvgAgeValid and not bearFvgInverted and bearFvgBar == limitTicket.zoneAtArm
+bool limitOppositeApproval = limitTicket.isLong ? shortApproved : longApproved
+bool limitHarvestDue = orderMode == "Limit" and exhaustion and barstate.isconfirmed and not limitFillPass and (na(limitLastHarvestBar) or limitLastHarvestBar != bar_index)
+string limitCancelReason = epLimit.cancellationReason(limitTicket, bar_index, strategy.position_size,
+     limitOppositeApproval, limitCancelOnOpposite, limitZoneStillValid,
+     limitCancelOnZoneChange and limitIsFvgPrice and limitTicket.kind == "ENTRY", limitHarvestDue)
+if limitTicket.active and (orderMode != "Limit" or limitCancelReason != "")
+    strategy.cancel(limitTicket.id)
+    string reason = orderMode != "Limit" ? "Engine switched" : limitCancelReason
+    epLimit.finish(limitTicket, reason == "Expired" ? "EXPIRED" : "CANCELLED", reason, limitTicket.price, bar_index, nz(time_close, time))
+
+float plannedBuyLimit = epLimit.entryPrice(true, limitPriceBasis, close, atr, limitOffsetAtr, limitOffsetTicks, bullFvgTop, bullFvgBottom, syminfo.mintick)
+float plannedSellLimit = epLimit.entryPrice(false, limitPriceBasis, close, atr, limitOffsetAtr, limitOffsetTicks, bearFvgTop, bearFvgBottom, syminfo.mintick)
+bool limitLongEligible = longApproved and strategy.position_size <= 0 and (limitAllowReversal or strategy.position_size == 0)
+bool limitShortEligible = shortApproved and strategy.position_size >= 0 and (limitAllowReversal or strategy.position_size == 0)
+bool limitRescueWindow = rescueEnabled and inPosition and adverseDistance >= atr * rescueAdverseAtr and limitRescueCycles < rescueMaximumCycles and (na(limitLastRescueBar) or bar_index - limitLastRescueBar >= rescueCooldown)
+string limitPlanStatus = "Waiting for approved setup"
+if orderMode == "Limit" and epLimit.canArm(limitTicket, bar_index, barstate.isconfirmed, limitFillPass) and not limitHarvestDue
+    if limitLongEligible or limitShortEligible
+        bool buy = limitLongEligible
+        float plannedPrice = buy ? plannedBuyLimit : plannedSellLimit
+        float plannedQuantity = strategy.default_entry_qty(plannedPrice)
+        bool hasRequiredZone = not limitIsFvgPrice or (buy ? bullFvgAgeValid and not bullFvgInverted : bearFvgAgeValid and not bearFvgInverted)
+        if hasRequiredZone and epLimit.isPassive(buy, plannedPrice, close, syminfo.mintick) and not na(plannedQuantity) and plannedQuantity > 0.0
+            epLimit.arm(limitTicket, buy, "ENTRY", plannedPrice, plannedQuantity, strategy.position_size,
+                 buy ? bullFvgBar : bearFvgBar, bar_index, nz(time_close, time), limitLifetime)
+            strategy.entry(limitTicket.id, buy ? strategy.long : strategy.short, qty=plannedQuantity, limit=plannedPrice,
+                 comment=buy ? "BUY LIMIT" : "SELL LIMIT", alert_message=buy ? "ETHER BUY LIMIT FILLED" : "ETHER SELL LIMIT FILLED")
+        else
+            limitPlanStatus := "No passive price / valid quantity"
+    else if limitRescueWindow
+        float plannedPrice = epLimit.entryPrice(positionLong, "ATR from close", close, atr, limitRescueOffsetAtr, 0, na, na, syminfo.mintick)
+        float rescueTargetAverage = positionLong ? plannedPrice + rescueTargetTicks * syminfo.mintick : plannedPrice - rescueTargetTicks * syminfo.mintick
+        float plannedQuantity = epEngines.rescueQuantity(math.abs(strategy.position_size), strategy.position_avg_price, plannedPrice, rescueTargetAverage, positionLong, rescueMaximumMultiple)
+        if epLimit.isPassive(positionLong, plannedPrice, close, syminfo.mintick) and not na(plannedQuantity) and plannedQuantity > 0.0
+            epLimit.arm(limitTicket, positionLong, "RESCUE", plannedPrice, plannedQuantity, strategy.position_size,
+                 na, bar_index, nz(time_close, time), limitLifetime)
+            strategy.order(limitTicket.id, positionLong ? strategy.long : strategy.short, qty=plannedQuantity, limit=plannedPrice,
+                 comment=positionLong ? "BUY LIMIT RESCUE" : "SELL LIMIT RESCUE", alert_message=positionLong ? "ETHER BUY LIMIT RESCUE FILLED" : "ETHER SELL LIMIT RESCUE FILLED")
+        else
+            limitPlanStatus := "No passive rescue price / quantity"
+
+// Shared protective brackets remain active while a reversal limit is waiting.
+// After a limit reversal, retire the old side's bracket before updating the new one.
+if orderMode == "Limit" and limitDirectionChanged
+    if strategy.position_size >= 0
+        strategy.cancel("SHORT_EXIT")
+    if strategy.position_size <= 0
+        strategy.cancel("LONG_EXIT")
+if strategy.position_size > 0
+    strategy.exit("LONG_EXIT", stop=strategy.position_avg_price - atr * stopAtr, limit=strategy.position_avg_price + atr * targetAtr)
+if strategy.position_size < 0
+    strategy.exit("SHORT_EXIT", stop=strategy.position_avg_price + atr * stopAtr, limit=strategy.position_avg_price - atr * targetAtr)
+if orderMode == "Market" and exhaustion
+    float harvestQuantity = math.abs(strategy.position_size) * harvestPercent / 100.0
+    strategy.order("ENERGY_HARVEST", positionLong ? strategy.short : strategy.long, qty=harvestQuantity, comment="ENERGY HARVEST")
+if limitHarvestDue
+    // Pending ticket was cancelled above. Reduce-only closes cannot reverse a position.
+    for leg = 0 to strategy.opentrades - 1
+        strategy.close(strategy.opentrades.entry_id(leg), qty=math.abs(strategy.opentrades.size(leg)) * harvestPercent / 100.0,
+             comment="LIMIT ENGINE HARVEST", alert_message="ETHER LIMIT ENGINE HARVEST FILLED")
+    limitLastHarvestBar := bar_index
+
+int displayedRescueCycles = orderMode == "Limit" ? limitRescueCycles : rescueCycles
+
+// LIMIT ORDER VISUALS — retained events and a separate live pending label/line.
+var label pendingLimitLabel = na
+var line pendingLimitLine = na
+var array<label> limitEventLabels = array.new_label()
+var int paintedLimitEvent = 0
+int limitLabelCapacity = math.max(1, math.min(limitHistoryLabels, 80))
+if showLimitHistory and limitTicket.eventSerial > paintedLimitEvent
+    while array.size(limitEventLabels) >= limitLabelCapacity
+        label.delete(array.shift(limitEventLabels))
+    bool cancelled = limitTicket.event == "CANCELLED" or limitTicket.event == "EXPIRED"
+    color ink = cancelled ? limitCancelColor : limitTicket.isLong ? limitBuyColor : limitSellColor
+    string limitEventCaption = "LIMIT " + (limitTicket.isLong ? "BUY " : "SELL ") + limitTicket.event + "\n@ " + str.tostring(limitTicket.eventPrice, format.mintick)
+    string tip = limitTicket.id + " | " + limitTicket.kind + "\n" + limitTicket.reason + "\nRequested limit " + str.tostring(limitTicket.price, format.mintick) + " | target/add Q " + str.tostring(limitTicket.quantity, "#.####") + "\nPlacement occurs at confirmed close. FILLED requires a trade record. Reversal transaction quantity also closes existing exposure."
+    array.push(limitEventLabels, label.new(limitTicket.eventTime, limitTicket.eventPrice, limitEventCaption, xloc=xloc.bar_time, yloc=yloc.price,
+         style=limitTicket.isLong ? label.style_label_up : label.style_label_down, color=color.new(ink, 28), textcolor=color.white, size=size.tiny, tooltip=tip))
+paintedLimitEvent := limitTicket.eventSerial
+if showLimitOrders and limitTicket.active
+    color ink = limitTicket.isLong ? limitBuyColor : limitSellColor
+    string pendingLimitCaption = (limitTicket.isLong ? "BUY LIMIT PENDING" : "SELL LIMIT PENDING") + "\n" + str.tostring(limitTicket.price, format.mintick) + " | " + limitTicket.kind
+    if na(pendingLimitLine)
+        pendingLimitLine := line.new(limitTicket.eventTime, limitTicket.price, nz(time_close, time), limitTicket.price, xloc=xloc.bar_time, extend=extend.right, style=line.style_dashed, color=ink)
+    else
+        line.set_xy1(pendingLimitLine, limitTicket.eventTime, limitTicket.price)
+        line.set_xy2(pendingLimitLine, nz(time_close, time), limitTicket.price)
+        line.set_color(pendingLimitLine, ink)
+    if na(pendingLimitLabel)
+        pendingLimitLabel := label.new(nz(time_close, time), limitTicket.price, pendingLimitCaption, xloc=xloc.bar_time, yloc=yloc.price, style=label.style_label_left, color=color.new(ink, 15), textcolor=color.white, size=size.small)
+    else
+        label.set_xy(pendingLimitLabel, nz(time_close, time), limitTicket.price)
+        label.set_text(pendingLimitLabel, pendingLimitCaption)
+        label.set_color(pendingLimitLabel, color.new(ink, 15))
+    label.set_tooltip(pendingLimitLabel, limitTicket.id + "\nFrozen until filled, cancelled or expired. Expiry bar " + str.tostring(limitTicket.expiryBar))
+else
+    if not na(pendingLimitLabel)
+        label.delete(pendingLimitLabel)
+        pendingLimitLabel := na
+    if not na(pendingLimitLine)
+        line.delete(pendingLimitLine)
+        pendingLimitLine := na
+
+var table orderBoard = table.new(position.top_left, 2, 5, bgcolor=C_PANEL, border_width=1)
+if barstate.islast
+    if showOrderBoard
+        table.cell(orderBoard, 0, 0, "ORDER ENGINE", text_color=C_MUTED, text_size=size.tiny)
+        table.cell(orderBoard, 1, 0, orderMode, text_color=C_GOLD, text_size=size.tiny)
+        table.cell(orderBoard, 0, 1, "STATE", text_color=C_MUTED, text_size=size.tiny)
+        table.cell(orderBoard, 1, 1, orderMode == "Market" ? "MARKET" : limitTicket.active ? "LIMIT PENDING" : limitTicket.event, text_color=C_GOLD, text_size=size.tiny)
+        table.cell(orderBoard, 0, 2, "PRICE / Q", text_color=C_MUTED, text_size=size.tiny)
+        table.cell(orderBoard, 1, 2, limitTicket.active ? str.tostring(limitTicket.price, format.mintick) + " / " + str.tostring(limitTicket.quantity, "#.####") : "—", text_color=C_GOLD, text_size=size.tiny)
+        table.cell(orderBoard, 0, 3, "BARS LEFT", text_color=C_MUTED, text_size=size.tiny)
+        table.cell(orderBoard, 1, 3, limitTicket.active ? str.tostring(math.max(limitTicket.expiryBar - bar_index, 0)) : "—", text_color=C_GOLD, text_size=size.tiny)
+        table.cell(orderBoard, 0, 4, "PLAN", text_color=C_MUTED, text_size=size.tiny)
+        table.cell(orderBoard, 1, 4, orderMode == "Market" ? "Existing signal path" : limitTicket.active ? limitTicket.id : limitPlanStatus, text_color=C_MUTED, text_size=size.tiny)
+    else
+        table.clear(orderBoard, 0, 0, 1, 4)
+
+// Snapshot adapter only; labels never submit/cancel orders or feed entry gates.
+var epLedger.Ledger transactionLedger = epLedger.create()
+array<epLedger.EntryFill> openFillSnapshots = array.new<epLedger.EntryFill>()
+array<epLedger.ClosedFill> closedFillSnapshots = array.new<epLedger.ClosedFill>()
+int firstAvailableClosed = nz(strategy.closedtrades.first_index, 0)
+int firstNewClosed = math.max(transactionLedger.closedCursor, firstAvailableClosed)
+if strategy.closedtrades > firstNewClosed
+    for tradeIndex = firstNewClosed to strategy.closedtrades - 1
+        epLedger.EntryFill entrySnapshot = epLedger.EntryFill.new(strategy.closedtrades.entry_id(tradeIndex), strategy.closedtrades.entry_time(tradeIndex), strategy.closedtrades.entry_bar_index(tradeIndex), strategy.closedtrades.entry_price(tradeIndex), strategy.closedtrades.size(tradeIndex))
+        array.push(closedFillSnapshots, epLedger.ClosedFill.new(entrySnapshot, tradeIndex, strategy.closedtrades.exit_id(tradeIndex), strategy.closedtrades.exit_time(tradeIndex), strategy.closedtrades.exit_price(tradeIndex), strategy.closedtrades.profit(tradeIndex), strategy.closedtrades.profit_percent(tradeIndex)))
+if strategy.opentrades > 0
+    for tradeIndex = 0 to strategy.opentrades - 1
+        array.push(openFillSnapshots, epLedger.EntryFill.new(strategy.opentrades.entry_id(tradeIndex), strategy.opentrades.entry_time(tradeIndex), strategy.opentrades.entry_bar_index(tradeIndex), strategy.opentrades.entry_price(tradeIndex), strategy.opentrades.size(tradeIndex)))
+epLedger.observe(transactionLedger, openFillSnapshots, closedFillSnapshots, strategy.closedtrades, showTradeLabels, maximumTradeLabels,
+     candleBullColor, candleBearColor, exitProfitColor, exitLossColor, exitFlatColor, strategy.position_avg_price, strategy.position_size)
+
+// Historical shard outputs are available alongside current v2 diagnostics.
+// These calculations do not alter score, orders, rescue size, or brackets.
+epTypes.KineticState libraryKinetic = epKinetic.f_get_kinetic_state(close, kineticScale, legacyLethal, legacyViral)
+epTypes.Permission libraryPermission = epSpatial.legacyPermission(legacyFvgAtr, legacyStructureLength, legacyChochAtr)
+[legacyAccumulation, legacyDistribution, legacyCloudTop, legacyCloudBottom, legacyRapidA, legacyRapidB, legacyWaveEnergy, legacyRail, legacySbBasis, legacySbDeviation, legacySbUpper, legacySbLower, legacyBreakoutUp, legacyBreakoutDown] = epGrid.legacyGrid(legacySpanA, legacySpanB, legacyRapidPercent, legacyBollLength, legacyBollMultiple, legacyWaveLength)
+float libraryHarvestQuantity = epRescue.f_check_harvest(strategy.position_avg_price, math.abs(strategy.position_size), positionLong, libraryKinetic.magnitude, legacyHarvestPercent)
+[legacyVoidA, legacyVoidB] = epGrid.historicalCloud(classicalA, classicalB, cloudDisplacement)
+[knowledgeCloudTop, knowledgeCloudBottom, knowledgeRapidTop, knowledgeRapidBottom, knowledgeCloudColor, knowledgeRapidColor, knowledgeRailColor] = nocturne.f_render_nocturne(legacyAccumulation, legacyDistribution, legacyRapidA, legacyRapidB, libraryKinetic.toxicity, knowledgeTeal, knowledgeMaroon, knowledgeDormant, knowledgeStable, knowledgeStable, knowledgeText)
+var table knowledgeBoard = table.new(position.bottom_left, 2, 9, bgcolor=C_PANEL, border_width=1)
+if barstate.islast
+    if showKnowledgeBoard
+        nocturne.f_render_cockpit(knowledgeBoard, libraryKinetic, libraryPermission, knowledgeText, knowledgeTeal, knowledgeMaroon, knowledgeDormant, knowledgeStable)
+        table.cell(knowledgeBoard, 0, 5, "LEGACY WAVE / HARVEST", text_color=knowledgeText, text_size=size.tiny)
+        table.cell(knowledgeBoard, 1, 5, str.tostring(legacyWaveEnergy, format.mintick) + " / " + str.tostring(libraryHarvestQuantity, "#.####"), text_color=knowledgeRailColor, text_size=size.tiny)
+        table.cell(knowledgeBoard, 0, 6, "SMA / RAPID RANGE", text_color=knowledgeText, text_size=size.tiny)
+        table.cell(knowledgeBoard, 1, 6, str.tostring(legacySbBasis, format.mintick) + " / " + str.tostring(knowledgeRapidTop - knowledgeRapidBottom, format.mintick), text_color=knowledgeRapidColor, text_size=size.tiny)
+        table.cell(knowledgeBoard, 0, 7, "CLOUD / HISTORICAL VOID", text_color=knowledgeText, text_size=size.tiny)
+        table.cell(knowledgeBoard, 1, 7, str.tostring(knowledgeCloudTop - knowledgeCloudBottom, format.mintick) + " / " + str.tostring(legacyVoidA - legacyVoidB, format.mintick), text_color=knowledgeCloudColor, text_size=size.tiny)
+        table.cell(knowledgeBoard, 0, 8, "DIAGNOSTICS ONLY", text_color=knowledgeText, text_size=size.tiny)
+        table.cell(knowledgeBoard, 1, 8, "Market / Limit routing", text_color=knowledgeText, text_size=size.tiny)
+    else
+        table.clear(knowledgeBoard, 0, 0, 1, 8)
+
+color energyColor = signedEnergy > 0.0 ? C_BULL : signedEnergy < 0.0 ? C_BEAR : C_MUTED
+bgcolor(kinetic > 0.85 ? color.new(energyColor, 92) : na, title="Expansion atmosphere")
+ //"plot" is not a valid type keyword.(CE10149)
+classicalTenkan = plot(showClassicalCloud ? tenkan : na, "Tenkan", color=tenkanColor, linewidth=cloudLineWidth, style=cloudStyle)
+classicalKijun = plot(showClassicalCloud ? kijun : na, "Kijun", color=kijunColor, linewidth=cloudLineWidth, style=cloudStyle)
+classicalSpanA = plot(showClassicalCloud ? classicalA : na, "Classical Span A", color=classicalAColor, linewidth=cloudLineWidth, style=cloudStyle, offset=cloudDisplacement)
+classicalSpanB = plot(showClassicalCloud ? classicalB : na, "Classical Span B", color=classicalBColor, linewidth=cloudLineWidth, style=cloudStyle, offset=cloudDisplacement)
+fill(classicalSpanA, classicalSpanB, classicalA >= classicalB ? classicalBullFill : classicalBearFill, title="Classical front cloud")
+
+rapidSpanAPlot = plot(showRapidCloud ? rapidA : na, "Rapid Span A", color=rapidAColor, linewidth=cloudLineWidth, style=cloudStyle, offset=cloudDisplacement)
+rapidSpanBPlot = plot(showRapidCloud ? rapidB : na, "Rapid Span B", color=rapidBColor, linewidth=cloudLineWidth, style=cloudStyle, offset=cloudDisplacement)
+fill(rapidSpanAPlot, rapidSpanBPlot, rapidFillColor, title="Rapid expansion cloud")
+
+volatilitySpanAPlot = plot(showVolatilityCloud ? volatilitySpanA : na, "Volatility Span A", color=volatilityAColor, linewidth=cloudLineWidth, style=cloudStyle)
+volatilitySpanBPlot = plot(showVolatilityCloud ? volatilitySpanB : na, "Volatility Span B", color=volatilityBColor, linewidth=cloudLineWidth, style=cloudStyle)
+fill(volatilitySpanAPlot, volatilitySpanBPlot, volatilityFillColor, title="Two-length volatility cloud")
+
+int nocturneCloudAlpha = nocturne.densityAlpha(multiplexer.confidence, multiplexer.entropyComposite, temp_atten, nocturneLightAlpha, nocturneDarkAlpha)
+color multiplexerDynamicFill = color.new(multiplexer.direction >= 0.0 ? multiplexerFillColor : multiplexerBColor, nocturneCloudAlpha)
+multiplexerSpanAPlot = plot(multiplexerEnabled and multiplexer.valid ? multiplexer.spanA : na, "Multiplexer Span A", color=multiplexerAColor, linewidth=cloudLineWidth, style=cloudStyle)
+multiplexerSpanBPlot = plot(multiplexerEnabled and multiplexer.valid ? multiplexer.spanB : na, "Multiplexer Span B", color=multiplexerBColor, linewidth=cloudLineWidth, style=cloudStyle)
+plot(multiplexerEnabled and multiplexer.valid ? multiplexer.center : na, "Multiplexer Center", color=multiplexerCenterColor, linewidth=cloudLineWidth, style=cloudStyle)
+fill(multiplexerSpanAPlot, multiplexerSpanBPlot, multiplexerDynamicFill, title="Entropy Multiplexer Cloud")
+
+color nocturneAtmosphere = nocturne.directionalColor(multiplexerAColor, multiplexerBColor, nocturneVoidColor, multiplexer.direction, 0.05, math.min(nocturneCloudAlpha + 2, 100))
+bgcolor(showNocturneAtmosphere ? nocturneAtmosphere : na, title="Nocturne entropy atmosphere")
+barcolor(showEnergyBarTint and candleMode == "Off" ? nocturne.directionalColor(waveBullColor, waveBearColor, nocturneSpectralColor, signedEnergy, 0.05, 26) : na, title="Nocturne energy candles")
+
+// One independent pair of evolving spans per side. New zones start a plot gap.
+bool mitigationClouds = fvgCloudMode == "Mitigation cloud"
+bool bullCloudDraw = showFvgCloud and (mitigationClouds ? bullScreenVisible and bar_index > bullScreenCloud.born : bullFvgAgeValid)
+bool bearCloudDraw = showFvgCloud and (mitigationClouds ? bearScreenVisible and bar_index > bearScreenCloud.born : bearFvgAgeValid)
+float bullCloudTop = mitigationClouds ? (bullScreenCloud.inverted ? bullScreenCloud.top : bullScreenCloud.remainingTop) : bullFvgTop
+float bullCloudBottom = mitigationClouds ? bullScreenCloud.bottom : bullFvgBottom
+float bearCloudTop = mitigationClouds ? bearScreenCloud.top : bearFvgTop
+float bearCloudBottom = mitigationClouds ? (bearScreenCloud.inverted ? bearScreenCloud.bottom : bearScreenCloud.remainingBottom) : bearFvgBottom
+bullZoneTop = plot(
+    bullCloudDraw ? bullCloudTop : na,
+    "Bull FVG Span A",
+    color=bullFvgInverted ? inversionColor : bullFvgTopColor,
+    linewidth=fvgLineWidth,
+    style=mitigationClouds ? plot.style_linebr : fvgStyle
+)
+bullZoneBottom = plot(
+    bullCloudDraw ? bullCloudBottom : na,
+    "Bull FVG Span B",
+    color=bullFvgInverted ? inversionColor : bullFvgBottomColor,
+    linewidth=fvgLineWidth,
+    style=mitigationClouds ? plot.style_linebr : fvgStyle
+)
+bearZoneTop = plot(
+    bearCloudDraw ? bearCloudTop : na,
+    "Bear FVG Span A",
+    color=bearFvgInverted ? inversionColor : bearFvgTopColor,
+    linewidth=fvgLineWidth,
+    style=mitigationClouds ? plot.style_linebr : fvgStyle
+)
+bearZoneBottom = plot(
+    bearCloudDraw ? bearCloudBottom : na,
+    "Bear FVG Span B",
+    color=bearFvgInverted ? inversionColor : bearFvgBottomColor,
+    linewidth=fvgLineWidth,
+    style=mitigationClouds ? plot.style_linebr : fvgStyle
+)
+color bullCloudInk = mitigationClouds ? color.new(bullScreenCloud.inverted ? inversionColor : bullFvgTopColor, epCloud.opacity(bullScreenCloud, cloudStrongAlpha, cloudFaintAlpha)) : bullFvgInverted ? color.new(inversionColor, 86) : bullFvgFillColor
+color bearCloudInk = mitigationClouds ? color.new(bearScreenCloud.inverted ? inversionColor : bearFvgTopColor, epCloud.opacity(bearScreenCloud, cloudStrongAlpha, cloudFaintAlpha)) : bearFvgInverted ? color.new(inversionColor, 86) : bearFvgFillColor
+fill(bullZoneTop, bullZoneBottom, bullCloudInk, title="Accumulated demand / inverted resistance", fillgaps=false)
+fill(bearZoneTop, bearZoneBottom, bearCloudInk, title="Distributed supply / inverted support", fillgaps=false)
+// Original gap stays visible as a faint reference around the shrinking remainder.
+bullEnvelopeTop = plot(
+    mitigationClouds and showFvgOriginalEnvelope and bullCloudDraw ? bullScreenCloud.top : na,
+    "Bull original upper",
+    color=bullFvgTopColor,
+    style=plot.style_linebr
+)
+bullEnvelopeBottom = plot(
+    mitigationClouds and showFvgOriginalEnvelope and bullCloudDraw ? bullScreenCloud.bottom : na,
+    "Bull original lower",
+    color=bullFvgBottomColor,
+    style=plot.style_linebr
+)
+bearEnvelopeTop = plot(
+    mitigationClouds and showFvgOriginalEnvelope and bearCloudDraw ? bearScreenCloud.top : na,
+    "Bear original upper",
+    color=bearFvgTopColor,
+    style=plot.style_linebr
+)
+bearEnvelopeBottom = plot(
+    mitigationClouds and showFvgOriginalEnvelope and bearCloudDraw ? bearScreenCloud.bottom : na,
+    "Bear original lower",
+    color=bearFvgBottomColor,
+    style=plot.style_linebr
+)
+fill(bullEnvelopeTop, bullEnvelopeBottom, color.new(bullFvgFillColor, 96), title="Original demand envelope", fillgaps=false)
+fill(bearEnvelopeTop, bearEnvelopeBottom, color.new(bearFvgFillColor, 96), title="Original supply envelope", fillgaps=false)
+plot(
+    mitigationClouds and showFvgMidpoints and bullCloudDraw ? (bullScreenCloud.top + bullScreenCloud.bottom) * 0.5 : na,
+    "Bull gap midpoint",
+    color=bullFvgBottomColor,
+    style=plot.style_linebr
+)
+plot(
+    mitigationClouds and showFvgMidpoints and bearCloudDraw ? (bearScreenCloud.top + bearScreenCloud.bottom) * 0.5 : na,
+    "Bear gap midpoint",
+    color=bearFvgBottomColor,
+    style=plot.style_linebr
+)
+plot(bullCloudRemaining * 100.0, "Bull gap remaining %", display=display.data_window)
+plot(bearCloudRemaining * 100.0, "Bear gap remaining %", display=display.data_window)
+plot(epCloud.distanceAtr(bullScreenCloud, close, atr), "Bull cloud distance ATR", display=display.data_window)
+plot(epCloud.distanceAtr(bearScreenCloud, close, atr), "Bear cloud distance ATR", display=display.data_window)
+
+var table cloudScreenBoard = table.new(position.middle_right, 3, 10, bgcolor=C_PANEL, border_width=1)
+if barstate.islast
+    if showFvgScreen
+        table.cell(
+            cloudScreenBoard,
+            0,
+            0,
+            "FVG SCREEN",
+            text_color=C_GOLD,
+            text_size=size.tiny,
+            tooltip="Latest confirmed zone per side. Visual screen only; execution retains its established gates."
+        )
+        table.cell(cloudScreenBoard, 1, 0, "BULL ORIGIN", text_color=bullFvgTopColor, text_size=size.tiny)
+        table.cell(cloudScreenBoard, 2, 0, "BEAR ORIGIN", text_color=bearFvgTopColor, text_size=size.tiny)
+        var array<string> rowNames = array.from("STATE", "SCREEN", "REMAINING", "BIRTH WIDTH", "BIRTH RVOL", "DISTANCE", "AGE / TOUCH BARS", "BIRTH STRUCTURE", "CURRENT ROLE")
+        for row = 1 to 9
+            table.cell(cloudScreenBoard, 0, row, array.get(rowNames, row - 1), text_color=C_MUTED, text_size=size.tiny)
+        for side = 1 to 2
+            epCloud.Cloud screened = side == 1 ? bullScreenCloud : bearScreenCloud
+            string rejection = side == 1 ? bullCloudRejection : bearCloudRejection
+            color sideInk = screened.inverted ? inversionColor : side == 1 ? bullFvgTopColor : bearFvgTopColor
+            table.cell(cloudScreenBoard, side, 1, epCloud.stateName(screened), text_color=sideInk, text_size=size.tiny)
+            table.cell(cloudScreenBoard, side, 2, rejection, text_color=rejection == "PASS" ? C_BULL : C_MUTED, text_size=size.tiny)
+            table.cell(
+                cloudScreenBoard,
+                side,
+                3,
+                screened.exists ? str.tostring(epCloud.remaining(screened) * 100.0, "#") + "%" : "—",
+                text_color=sideInk,
+                text_size=size.tiny
+            )
+            table.cell(cloudScreenBoard, side, 4, str.tostring(epCloud.widthAtr(screened), "#.##") + " ATR", text_color=sideInk, text_size=size.tiny)
+            table.cell(
+                cloudScreenBoard,
+                side,
+                5,
+                na(screened.birthRvol) ? "N/A" : str.tostring(screened.birthRvol, "#.##") + "x",
+                text_color=sideInk,
+                text_size=size.tiny
+            )
+            table.cell(
+                cloudScreenBoard,
+                side,
+                6,
+                str.tostring(epCloud.distanceAtr(screened, close, atr), "#.##") + " ATR",
+                text_color=sideInk,
+                text_size=size.tiny
+            )
+            table.cell(
+                cloudScreenBoard,
+                side,
+                7,
+                screened.exists ? str.tostring(bar_index - screened.born) + " / " + str.tostring(screened.touchBars) : "—",
+                text_color=sideInk,
+                text_size=size.tiny
+            )
+            table.cell(
+                cloudScreenBoard,
+                side,
+                8,
+                screened.exists ? screened.structureAtBirth ? "ALIGNED" : "NO" : "—",
+                text_color=sideInk,
+                text_size=size.tiny
+            )
+            table.cell(
+                cloudScreenBoard,
+                side,
+                9,
+                not screened.exists or screened.expired ? "—" : screened.inverted ? (side == 1 ? "RESISTANCE" : "SUPPORT") : (side == 1 ? "DEMAND ZONE" : "SUPPLY ZONE"),
+                text_color=sideInk,
+                text_size=size.tiny,
+                tooltip="Geometric FVG role, not measured liquidity or resting order-book depth."
+            )
+    else
+        table.clear(cloudScreenBoard, 0, 0, 2, 9)
+
+plot(showSuperBoll ? sbBasis : na, "SuperBoll basis", color=superBollBasisColor, linewidth=superBollLineWidth)
+sbTopPlot = plot(showSuperBoll ? sbUpper : na, "SuperBoll upper", color=superBollUpperColor, linewidth=superBollLineWidth)
+sbBottomPlot = plot(showSuperBoll ? sbLower : na, "SuperBoll lower", color=superBollLowerColor, linewidth=superBollLineWidth)
+fill(sbTopPlot, sbBottomPlot, superBollFillColor, title="Mean-reversion field")
+plot(showTimeRails ? rail : na, "Session time rail", color=timeRailColor, linewidth=drawingLineWidth, style=plot.style_stepline)
+
+// plotshape(showStructure and bosBull, "Bull BOS", shape.triangleup, location.belowbar, structureBullColor, size=size.tiny, text="BOS")
+//plotshape(showStructure and bosBear, "Bear BOS", shape.triangledown, location.abovebar, structureBearColor, size=size.tiny, text="BOS")
+//plotshape(showStructure and chochBull, "Bull CHoCH", shape.diamond, location.belowbar, chochColor, size=size.tiny, text="CH")
+//plotshape(showStructure and chochBear, "Bear CHoCH", shape.diamond, location.abovebar, chochColor, size=size.tiny, text="CH")
+//plotshape(showTimeRails and ta.crossover(wave, 0.0), "Ascending wave", shape.circle, location.belowbar, waveBullColor, size=size.tiny, text="W+")
+//plotshape(showTimeRails and ta.crossunder(wave, 0.0), "Descending wave", shape.circle, location.abovebar, waveBearColor, size=size.tiny, text="W-")
+//plotshape(showFvgCloud and bullIfvgEvent, "Bull iFVG", shape.square, location.abovebar, inversionColor, size=size.tiny, text="iF")
+//plotshape(showFvgCloud and bearIfvgEvent, "Bear iFVG", shape.square, location.belowbar, inversionColor, size=size.tiny, text="iF")
+//plotshape(showEventHalos and (bosBull or chochBull or bearIfvgEvent), "Bull event halo", shape.circle, location.belowbar, nocturne.spectralColor(structureBullColor, multiplexer.confidence, 82, 28), size=size.small)
+//plotshape(showEventHalos and (bosBear or chochBear or bullIfvgEvent), "Bear event halo", shape.circle, location.abovebar, nocturne.spectralColor(structureBearColor, multiplexer.confidence, 82, 28), size=size.small)
+
+// HA is a synthetic display. Standard charts retain standard execution OHLC.
+// Volume-width mode draws the latest retained candles; uniform mode covers history.
+bool candleVisible = candleMode != "Off" and not na(marketCandleClose)
+bool displayHa = candleMode == "Heikin Ashi" or candleMode == "HA + relative volume"
+bool displayRvol = candleMode == "HA + relative volume" or candleMode == "Price + relative volume"
+float candleOpen = displayHa ? displayHaOpen : marketCandleOpen
+float candleHigh = displayHa ? displayHaHigh : marketCandleHigh
+float candleLow = displayHa ? displayHaLow : marketCandleLow
+float candleClose = displayHa ? displayHaClose : marketCandleClose
+color candleDirectionColor = candleClose > candleOpen ? candleBullColor : candleClose < candleOpen ? candleBearColor : candleNeutralColor
+int candleAlpha = not displayRvol ? 12 : not displayVolumeMediumValid ? 75 : displayClimaxVolume ? 0 : displayStrongVolume and (displayStrongBull or displayStrongBear) ? 8 : displayRvolMedium >= 1.0 ? 30 : 65
+color candleInk = color.new(displayRvol and not displayVolumeMediumValid ? candleNeutralColor : candleDirectionColor, candleAlpha)
+bool volumeWidthActive = candleVisible and displayRvol and volumeWidthEnabled and bar_index >= last_bar_index - math.max(1, math.min(volumeWidthBars, 100)) + 1
+var epCandles.VolumeCanvas volumeCanvas = epCandles.createCanvas()
+if volumeWidthActive and not na(candleOpen) and not na(candleHigh) and not na(candleLow) and not na(candleClose)
+    int candleDuration = int(math.max(nz(time_close - time, nz(time - time[1], 1)), 1))
+    float candleWidth = epCandles.volumeWidth(displayVolumeMediumValid ? displayRvolMedium : na, volumeWidthAtOne, volumeWidthPower)
+    epCandles.drawVolume(volumeCanvas, time, candleDuration, candleOpen, candleHigh, candleLow, candleClose,
+         candleWidth, displayVolumeBuyShare, showVolumeDivisions and not na(marketCandleVolume) and marketCandleVolume > 0.0,
+         (displayVolumeMediumValid ? candleDirectionColor : candleNeutralColor), candleBullColor, candleBearColor, candleAlpha, volumeWidthBars)
+plotcandle(candleVisible and not (displayRvol and volumeWidthEnabled) ? candleOpen : na, candleHigh, candleLow, candleClose, title="HA / relative volume candles", color=candleInk, wickcolor=candleInk, bordercolor=candleInk)
+plot(displayRvolFast, "RVOL fast (prior bars)", display=display.data_window)
+plot(displayRvolMedium, "RVOL medium (prior bars)", display=display.data_window)
+plot(displayRvolSlow, "RVOL slow (prior bars)", display=display.data_window)
+plot(displayBodyFraction, "HA body / range", display=display.data_window)
+plot(not na(marketCandleVolume) ? displayVolumeBuyShare : na, "Buy-share proxy (OHLC allocation)", display=display.data_window)
+
+var array<line> volumeDivisions = array.new_line()
+var int lastVolumeDivisionBar = na
+if candleVisible and not (displayRvol and volumeWidthEnabled) and bar_index >= last_bar_index - volumeDivisionBars + 1 and showVolumeDivisions and not na(marketCandleVolume) and marketCandleVolume > 0.0 and barstate.isconfirmed
+    // Replace current bar's division when a fill triggers recalculation.
+    if lastVolumeDivisionBar == bar_index and array.size(volumeDivisions) > 0
+        line.delete(array.pop(volumeDivisions))
+    while array.size(volumeDivisions) >= volumeDivisionBars
+        line.delete(array.shift(volumeDivisions))
+    float bodyBottom = math.min(candleOpen, candleClose)
+    float bodyTop = math.max(candleOpen, candleClose)
+    float divisionPrice = bodyBottom + (bodyTop - bodyBottom) * displayVolumeBuyShare
+    int halfCandleTime = int(math.max(nz(time_close - time, 1), 1) * 0.30)
+    array.push(volumeDivisions, line.new(time - halfCandleTime, divisionPrice, time + halfCandleTime, divisionPrice,
+         xloc=xloc.bar_time, color=color.new(C_GOLD, 15), width=2))
+    lastVolumeDivisionBar := bar_index
+
+var table candleBoard = table.new(position.bottom_right, 2, 8, bgcolor=C_PANEL, border_width=1)
+if barstate.islast
+    if showCandleBoard
+        string candleState = not displayVolumeMediumValid ? "VOLUME N/A / WARMUP" : displayClimaxVolume ? "CLIMAX" : displayStrongVolume and (displayStrongBull or displayStrongBear) ? "STRONG" : displayRvolMedium < 1.0 ? "QUIET" : "NORMAL"
+        table.cell(candleBoard, 0, 0, "HA + VOLUME", text_color=C_GOLD, text_size=size.tiny)
+        table.cell(candleBoard, 1, 0, candleState, text_color=candleDirectionColor, text_size=size.tiny)
+        table.cell(candleBoard, 0, 1, "RVOL F / M / S", text_color=C_MUTED, text_size=size.tiny)
+        table.cell(candleBoard, 1, 1, str.tostring(displayRvolFast, "#.##") + " / " + str.tostring(displayRvolMedium, "#.##") + " / " + str.tostring(displayRvolSlow, "#.##"), text_color=C_GOLD, text_size=size.tiny)
+        table.cell(candleBoard, 0, 2, "HA / BODY", text_color=C_MUTED, text_size=size.tiny)
+        table.cell(candleBoard, 1, 2, (displayHaBull ? "BULL " : displayHaBear ? "BEAR " : "DOJI ") + str.tostring(displayBodyFraction * 100.0, "#") + "%", text_color=candleDirectionColor, text_size=size.tiny)
+        table.cell(candleBoard, 0, 3, "BUY / SELL PROXY", text_color=C_MUTED, text_size=size.tiny)
+        table.cell(candleBoard, 1, 3, not na(marketCandleVolume) and marketCandleVolume > 0.0 ? str.tostring(displayVolumeBuyShare * 100.0, "#") + "% / " + str.tostring((1.0 - displayVolumeBuyShare) * 100.0, "#") + "%" : "N/A", text_color=C_GOLD, text_size=size.tiny, tooltip="Total volume allocated by close position in high-low range; not bid/ask delta.")
+        table.cell(candleBoard, 0, 4, "CANDLE GATE", text_color=C_MUTED, text_size=size.tiny)
+        table.cell(candleBoard, 1, 4, not candleGateEnabled ? "OFF · VISUAL ONLY" : candleLongGate ? "LONG" : candleShortGate ? "SHORT" : "HOLD", text_color=C_GOLD, text_size=size.tiny)
+        table.cell(candleBoard, 0, 5, "FILL MODEL", text_color=C_MUTED, text_size=size.tiny)
+        table.cell(candleBoard, 1, 5, chart.is_standard ? "STANDARD CHART" : "SYNTHETIC CHART", text_color=chart.is_standard ? C_MUTED : C_BEAR, text_size=size.tiny)
+        table.cell(candleBoard, 0, 6, "DISPLAY / WICKS", text_color=C_MUTED, text_size=size.tiny)
+        table.cell(candleBoard, 1, 6, (displayHa ? haDisplaySource : "Market OHLC") + " / " + (displayStrongBull ? "STRONG UP" : displayStrongBear ? "STRONG DOWN" : "MIXED"), text_color=candleDirectionColor, text_size=size.tiny)
+        table.cell(candleBoard, 0, 7, "WIDTH / VOLUME", text_color=C_MUTED, text_size=size.tiny)
+        table.cell(candleBoard, 1, 7, (volumeWidthActive ? "RVOL WIDTH" : "UNIFORM") + " / " + syminfo.volumetype, text_color=C_MUTED, text_size=size.tiny, tooltip="Volume means the feed's reported base/quote/tick volume. Body split remains an OHLC allocation proxy.")
+    else
+        table.clear(candleBoard, 0, 0, 1, 7)
+
+// Object drawings do not consume slots. Every registry is explicitly
+// bounded so long histories cannot leak chart objects.
+var array<line> frontGrid = array.new_line()
+var array<line> depthRails = array.new_line()
+var array<line> gannFan = array.new_line()
+var array<line> timeTheoryRails = array.new_line()
+var array<line> multiplexerDensityRails = array.new_line()
+var line waveVector = na
+var box bullFvgBox = na
+var box bearFvgBox = na
+var box multiplexerEntropyVeil = na
+var line positionEntryLine = na
+var line positionStopLine = na
+var line positionTargetLine = na
+var array<label> eventTags = array.new_label()
+
+string multiplexerEntropyName = epTypes.entropyName(multiplexer.entropyState)
+string multiplexerLaneName = epTypes.laneName(multiplexer.dominantLane)
+bool multiplexerTransition = multiplexer.valid and (multiplexerEntropyName != multiplexerEntropyName[1] or multiplexerLaneName != multiplexerLaneName[1])
+
+if showEventTags and (bosBull or bosBear or chochBull or chochBear or bullIfvgEvent or bearIfvgEvent)
+    int eventDirection = bosBull or chochBull or bearIfvgEvent ? 1 : -1
+    string eventText = chochBull or chochBear ? "CHoCH" : bullIfvgEvent or bearIfvgEvent ? "iFVG" : "BOS"
+    color eventColor = bullIfvgEvent or bearIfvgEvent ? inversionColor : chochBull or chochBear ? chochColor : eventDirection > 0 ? structureBullColor : structureBearColor
+    float eventPrice = eventDirection > 0 ? low - atr * 0.12 : high + atr * 0.12
+    label eventTag = label.new(bar_index, eventPrice, eventText, xloc=xloc.bar_index, yloc=yloc.price,
+         style=eventDirection > 0 ? label.style_label_up : label.style_label_down,
+         color=color.new(eventColor, 72), textcolor=eventColor, size=size.tiny,
+         tooltip=eventText + " | price " + str.tostring(close, format.mintick))
+    array.push(eventTags, eventTag)
+if showEntropyTransitions and multiplexerEnabled and multiplexerTransition
+    color transitionColor = multiplexer.direction > 0.0 ? multiplexerAColor : multiplexer.direction < 0.0 ? multiplexerBColor : multiplexerCenterColor
+    label transitionTag = label.new(bar_index, multiplexer.direction >= 0.0 ? low - atr * 0.22 : high + atr * 0.22,
+         "MUX " + multiplexerLaneName, xloc=xloc.bar_index, yloc=yloc.price,
+         style=multiplexer.direction >= 0.0 ? label.style_label_up : label.style_label_down,
+         color=color.new(transitionColor, 78), textcolor=transitionColor, size=size.tiny,
+         tooltip=multiplexerEntropyName + " | H " + str.tostring(multiplexer.entropyComposite, "#.000") + " | C " + str.tostring(multiplexer.confidence, "#.000"))
+    array.push(eventTags, transitionTag)
+while array.size(eventTags) > maximumEventTags
+    label.delete(array.shift(eventTags))
+
+if barstate.islast
+    while array.size(frontGrid) > 0
+        line.delete(array.pop(frontGrid))
+    while array.size(depthRails) > 0
+        line.delete(array.pop(depthRails))
+    while array.size(gannFan) > 0
+        line.delete(array.pop(gannFan))
+    while array.size(timeTheoryRails) > 0
+        line.delete(array.pop(timeTheoryRails))
+    while array.size(multiplexerDensityRails) > 0
+        line.delete(array.pop(multiplexerDensityRails))
+    if showFrontGrid
+        int gridLeft = bar_index + 1
+        int gridRight = bar_index + cloudDisplacement
+        float gridTop = math.max(math.max(classicalA, classicalB), rapidA) + atr * 0.35
+        float gridBottom = math.min(math.min(classicalA, classicalB), rapidB) - atr * 0.35
+        float gridHeight = math.max(gridTop - gridBottom, syminfo.mintick)
+        for row = 0 to frontGridRows
+            float gridY = gridBottom + gridHeight * row / frontGridRows
+            color rowColor = row == 0 or row == frontGridRows ? color.new(timeRailColor, 42) : color.new(gridColor, 72)
+            array.push(frontGrid, line.new(gridLeft, gridY, gridRight, gridY, xloc=xloc.bar_index, color=rowColor, style=drawingStyle, width=drawingLineWidth))
+        for column = 0 to frontGridColumns
+            int gridX = gridLeft + int(math.round((gridRight - gridLeft) * column / frontGridColumns))
+            array.push(frontGrid, line.new(gridX, gridBottom, gridX, gridTop, xloc=xloc.bar_index, color=color.new(gridColor, 78), style=drawingStyle, width=drawingLineWidth))
+
+    float spatialHigh = math.max(math.max(classicalA, classicalB), math.max(rapidA, nz(lastPivotHigh, high)))
+    float spatialLow = math.min(math.min(classicalA, classicalB), math.min(rapidB, nz(lastPivotLow, low)))
+    float spatialRange = math.max(spatialHigh - spatialLow, syminfo.mintick)
+    int projectionLeft = bar_index + 1
+    int projectionRight = bar_index + cloudDisplacement
+
+    if showMultiplexerProjection and multiplexerEnabled and multiplexer.valid
+        float multiplexerRange = math.max(multiplexer.spanA - multiplexer.spanB, syminfo.mintick)
+        array<float> muxDensities = array.from(multiplexer.densityFast, multiplexer.densityMedium, multiplexer.densitySlow)
+        array<color> muxColors = array.from(multiplexerAColor, multiplexerCenterColor, multiplexerBColor)
+        for muxIndex = 0 to 2
+            float muxDensity = array.get(muxDensities, muxIndex)
+            float muxRailPrice = multiplexer.spanB + multiplexerRange * (muxIndex + 1) * 0.25
+            color muxRailColor = nocturne.spectralColor(array.get(muxColors, muxIndex), muxDensity, 86, 22)
+            string muxRailLane = muxIndex == 0 ? "FAST" : muxIndex == 1 ? "BALANCED" : "SLOW"
+            int muxRailWidth = multiplexerLaneName == muxRailLane ? math.max(2, drawingLineWidth) : drawingLineWidth
+            array.push(multiplexerDensityRails, line.new(projectionLeft, muxRailPrice, projectionRight, muxRailPrice + multiplexer.direction * atr * muxDensity,
+                 xloc=xloc.bar_index, color=muxRailColor, width=muxRailWidth, style=drawingStyle))
+        color veilColor = multiplexer.direction > 0.0 ? multiplexerAColor : multiplexer.direction < 0.0 ? multiplexerBColor : multiplexerCenterColor
+        string veilText = "MUX " + multiplexerLaneName + " | " + multiplexerEntropyName + " | H " + str.tostring(multiplexer.entropyComposite, "#.00")
+        if na(multiplexerEntropyVeil)
+            multiplexerEntropyVeil := box.new(projectionLeft, multiplexer.spanA, projectionRight, multiplexer.spanB, xloc=xloc.bar_index,
+                 bgcolor=color.new(veilColor, math.min(nocturneCloudAlpha + 5, 96)), border_color=color.new(veilColor, 48), text=veilText, text_color=color.new(veilColor, 12), text_size=size.tiny)
+        else
+            box.set_lefttop(multiplexerEntropyVeil, projectionLeft, multiplexer.spanA)
+            box.set_rightbottom(multiplexerEntropyVeil, projectionRight, multiplexer.spanB)
+            box.set_bgcolor(multiplexerEntropyVeil, color.new(veilColor, math.min(nocturneCloudAlpha + 5, 96)))
+            box.set_border_color(multiplexerEntropyVeil, color.new(veilColor, 48))
+            box.set_text(multiplexerEntropyVeil, veilText)
+            box.set_text_color(multiplexerEntropyVeil, color.new(veilColor, 12))
+    else if not na(multiplexerEntropyVeil)
+        box.delete(multiplexerEntropyVeil)
+        multiplexerEntropyVeil := na
+
+    if showFibonacciDepth
+        array<float> fibRatios = array.from(0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0)
+        for ratioIndex = 0 to array.size(fibRatios) - 1
+            float ratio = array.get(fibRatios, ratioIndex)
+            float fibPrice = spatialLow + spatialRange * ratio
+            color fibColor = ratio == 0.5 ? color.new(gannColor, 54) : ratio == 0.382 or ratio == 0.618 ? color.new(fibonacciColor, 56) : color.new(fibonacciColor, 62)
+            int fibWidth = ratio == 0.5 ? 2 : 1
+            array.push(depthRails, line.new(projectionLeft, fibPrice, projectionRight, fibPrice, xloc=xloc.bar_index, color=fibColor, width=math.max(fibWidth, drawingLineWidth), style=drawingStyle))
+
+    if showGannFan and not na(lastStructureEventBar) and not na(lastStructureEventPrice) and bar_index - lastStructureEventBar <= 5000
+        float fanDirection = lastStructureEventDirection == 0 ? math.sign(scoreEdge) : lastStructureEventDirection
+        float fanUnit = spatialRange / math.max(cloudDisplacement, 1)
+        array<float> fanRatios = array.from(0.5, 1.0, 2.0, 4.0)
+        for fanIndex = 0 to array.size(fanRatios) - 1
+            float fanRatio = array.get(fanRatios, fanIndex)
+            float fanTarget = lastStructureEventPrice + fanDirection * fanUnit * cloudDisplacement * fanRatio
+            color fanColor = fanRatio == 1.0 ? color.new(gannColor, 50) : color.new(gannColor, 58)
+            int fanWidth = fanRatio == 1.0 ? 2 : 1
+            array.push(gannFan, line.new(lastStructureEventBar, lastStructureEventPrice, projectionRight, fanTarget, xloc=xloc.bar_index, color=fanColor, width=math.max(fanWidth, drawingLineWidth), style=drawingStyle))
+
+    if showTimeTheory and not na(lastStructureEventBar)
+        array<int> timeNumbers = array.from(9, 17, 26, 33, 42, 65)
+        for timeIndex = 0 to array.size(timeNumbers) - 1
+            int timeNumber = array.get(timeNumbers, timeIndex)
+            int timeBar = lastStructureEventBar + timeNumber
+            if timeBar > bar_index and timeBar <= bar_index + 500
+                color timeColor = timeNumber == 26 ? color.new(timeRailColor, 52) : color.new(timeTheoryColor, 52)
+                array.push(timeTheoryRails, line.new(timeBar, spatialLow, timeBar, spatialHigh, xloc=xloc.bar_index, color=timeColor, style=drawingStyle, width=drawingLineWidth))
+
+    if showTimeRails
+        float projectedWave = close + wave * cloudDisplacement
+        if na(waveVector)
+            waveVector := line.new(bar_index, close, bar_index + cloudDisplacement, projectedWave, xloc=xloc.bar_index, color=signedEnergy >= 0.0 ? waveBullColor : waveBearColor, width=math.max(2, drawingLineWidth), style=drawingStyle)
+        else
+            line.set_xy1(waveVector, bar_index, close)
+            line.set_xy2(waveVector, bar_index + cloudDisplacement, projectedWave)
+            line.set_color(waveVector, signedEnergy >= 0.0 ? waveBullColor : waveBearColor)
+            line.set_style(waveVector, drawingStyle)
+            line.set_width(waveVector, math.max(2, drawingLineWidth))
+    else if not na(waveVector)
+        line.delete(waveVector)
+        waveVector := na
+
+    if showFvgBoxes and fvgCloudMode == "Original spans" and bullFvgAgeValid
+        color bullBoxColor = bullFvgInverted ? inversionColor : bullFvgTopColor
+        string bullBoxText = bullFvgInverted ? "iFVG resistance" : "FVG demand"
+        if na(bullFvgBox)
+            bullFvgBox := box.new(bullFvgBar, bullFvgTop, bar_index + cloudDisplacement, bullFvgBottom, xloc=xloc.bar_index,
+                 bgcolor=color.new(bullBoxColor, 91), border_color=color.new(bullBoxColor, 58), text=bullBoxText, text_color=color.new(bullBoxColor, 52), text_size=size.tiny)
+        else
+            box.set_lefttop(bullFvgBox, bullFvgBar, bullFvgTop)
+            box.set_rightbottom(bullFvgBox, bar_index + cloudDisplacement, bullFvgBottom)
+            box.set_bgcolor(bullFvgBox, color.new(bullBoxColor, 91))
+            box.set_border_color(bullFvgBox, color.new(bullBoxColor, 48))
+            box.set_text(bullFvgBox, bullBoxText)
+    else if not na(bullFvgBox)
+        box.delete(bullFvgBox)
+        bullFvgBox := na
+
+    if showFvgBoxes and fvgCloudMode == "Original spans" and bearFvgAgeValid
+        color bearBoxColor = bearFvgInverted ? inversionColor : bearFvgTopColor
+        string bearBoxText = bearFvgInverted ? "iFVG support" : "FVG supply"
+        if na(bearFvgBox)
+            bearFvgBox := box.new(bearFvgBar, bearFvgTop, bar_index + cloudDisplacement, bearFvgBottom, xloc=xloc.bar_index,
+                 bgcolor=color.new(bearBoxColor, 91), border_color=color.new(bearBoxColor, 58), text=bearBoxText, text_color=color.new(bearBoxColor, 52), text_size=size.tiny)
+        else
+            box.set_lefttop(bearFvgBox, bearFvgBar, bearFvgTop)
+            box.set_rightbottom(bearFvgBox, bar_index + cloudDisplacement, bearFvgBottom)
+            box.set_bgcolor(bearFvgBox, color.new(bearBoxColor, 91))
+            box.set_border_color(bearFvgBox, color.new(bearBoxColor, 58))
+            box.set_text(bearFvgBox, bearBoxText)
+    else if not na(bearFvgBox)
+        box.delete(bearFvgBox)
+        bearFvgBox := na
+
+    if showPositionGeometry and inPosition
+        float positionStop = positionLong ? strategy.position_avg_price - atr * stopAtr : strategy.position_avg_price + atr * stopAtr
+        float positionTarget = positionLong ? strategy.position_avg_price + atr * targetAtr : strategy.position_avg_price - atr * targetAtr
+        int geometryRight = bar_index + cloudDisplacement
+        if na(positionEntryLine)
+            positionEntryLine := line.new(bar_index, strategy.position_avg_price, geometryRight, strategy.position_avg_price, xloc=xloc.bar_index, color=entryLineColor, width=math.max(2, drawingLineWidth), style=drawingStyle)
+            positionStopLine := line.new(bar_index, positionStop, geometryRight, positionStop, xloc=xloc.bar_index, color=stopLineColor, width=drawingLineWidth, style=drawingStyle)
+            positionTargetLine := line.new(bar_index, positionTarget, geometryRight, positionTarget, xloc=xloc.bar_index, color=targetLineColor, width=drawingLineWidth, style=drawingStyle)
+        else
+            line.set_xy1(positionEntryLine, bar_index, strategy.position_avg_price)
+            line.set_xy2(positionEntryLine, geometryRight, strategy.position_avg_price)
+            line.set_xy1(positionStopLine, bar_index, positionStop)
+            line.set_xy2(positionStopLine, geometryRight, positionStop)
+            line.set_xy1(positionTargetLine, bar_index, positionTarget)
+            line.set_xy2(positionTargetLine, geometryRight, positionTarget)
+            line.set_color(positionEntryLine, entryLineColor)
+            line.set_color(positionStopLine, stopLineColor)
+            line.set_color(positionTargetLine, targetLineColor)
+            line.set_style(positionEntryLine, drawingStyle)
+            line.set_style(positionStopLine, drawingStyle)
+            line.set_style(positionTargetLine, drawingStyle)
+    else if not na(positionEntryLine)
+        line.delete(positionEntryLine)
+        line.delete(positionStopLine)
+        line.delete(positionTargetLine)
+        positionEntryLine := na
+        positionStopLine := na
+        positionTargetLine := na
+
+var table board = table.new(position.top_right, 4, 11, bgcolor=color.new(C_PANEL, 40), frame_color=color.new(C_GOLD, 58), frame_width=1, border_color=color.new(C_MUTED, 84))
+if barstate.islast
+    if showDashboard
+        epTypes.Direction direction = longApproved ? epTypes.Direction.LONG : shortApproved ? epTypes.Direction.SHORT : epTypes.Direction.WAIT
+        string marketState = kinetic >= 0.85 ? "EXPANSION" : math.abs(zScore) >= 1.0 ? "DISPLACED" : math.abs(sbUpper - sbLower) / math.max(sbBasis, syminfo.mintick) < 0.01 ? "COMPRESS" : "BALANCED"
+        color directionColor = direction == epTypes.Direction.LONG ? C_BULL : direction == epTypes.Direction.SHORT ? C_BEAR : C_MUTED
+        color longBackground = longApproved ? color.new(C_BULL, 76) : color.new(C_PANEL, 30)
+        color shortBackground = shortApproved ? color.new(C_BEAR, 76) : color.new(C_PANEL, 30)
+        table.cell(board, 0, 0, "ETHER", text_color=C_GOLD, bgcolor=color.new(C_DARK, 30), text_size=size.small)
+        table.cell(board, 1, 0, "LONG", text_color=C_BULL, bgcolor=longBackground, text_size=size.tiny)
+        table.cell(board, 2, 0, "SHORT", text_color=C_BEAR, bgcolor=shortBackground, text_size=size.tiny)
+        table.cell(board, 3, 0, marketState, text_color=C_GOLD, bgcolor=color.new(C_DARK, 30), text_size=size.tiny)
+        table.cell(board, 0, 1, "SCORE", text_color=C_MUTED, text_size=size.tiny)
+        table.cell(board, 1, 1, str.tostring(longScore * 100.0, "#.0") + "%", text_color=C_BULL, bgcolor=longBackground, text_size=size.tiny)
+        table.cell(board, 2, 1, str.tostring(shortScore * 100.0, "#.0") + "%", text_color=C_BEAR, bgcolor=shortBackground, text_size=size.tiny)
+        table.cell(board, 3, 1, "T " + str.tostring(entryThreshold * 100.0, "#") + "%", text_color=C_MUTED, text_size=size.tiny)
+        table.cell(board, 0, 2, "FVG / iFVG", text_color=C_MUTED, text_size=size.tiny)
+        table.cell(board, 1, 2, bullFvgInverted and bullFvgAgeValid ? "iFVG" : bullFvgLive ? "ACTIVE" : "NONE", text_color=C_BULL, text_size=size.tiny)
+        table.cell(board, 2, 2, bearFvgInverted and bearFvgAgeValid ? "iFVG" : bearFvgLive ? "ACTIVE" : "NONE", text_color=C_BEAR, text_size=size.tiny)
+        table.cell(board, 3, 2, "LIFE " + str.tostring(zoneLifetime), text_color=C_MUTED, text_size=size.tiny)
+        table.cell(board, 0, 3, "STRUCTURE", text_color=C_MUTED, text_size=size.tiny)
+        table.cell(board, 1, 3, bullStructureGate ? "OPEN " + str.tostring(bullStructureAge) : "BLOCK", text_color=bullStructureGate ? C_BULL : C_MUTED, text_size=size.tiny)
+        table.cell(board, 2, 3, bearStructureGate ? "OPEN " + str.tostring(bearStructureAge) : "BLOCK", text_color=bearStructureGate ? C_BEAR : C_MUTED, text_size=size.tiny)
+        table.cell(board, 3, 3, structureDirection > 0 ? "BULL" : structureDirection < 0 ? "BEAR" : "NONE", text_color=structureDirection > 0 ? C_BULL : structureDirection < 0 ? C_BEAR : C_MUTED, text_size=size.tiny)
+        table.cell(board, 0, 4, "ENERGY", text_color=C_MUTED, text_size=size.tiny)
+        table.cell(board, 1, 4, str.tostring(math.max(signedEnergy, 0.0), "#.00"), text_color=C_BULL, text_size=size.tiny)
+        table.cell(board, 2, 4, str.tostring(math.max(-signedEnergy, 0.0), "#.00"), text_color=C_BEAR, text_size=size.tiny)
+        table.cell(board, 3, 4, str.tostring(kinetic * 100.0, "#") + "%", text_color=energyColor, text_size=size.tiny)
+        table.cell(board, 0, 5, "CLOUD / MUX", text_color=C_MUTED, text_size=size.tiny)
+        table.cell(board, 1, 5, (bullCloudEffect > 0.0 ? "ABOVE " : "") + "F " + str.tostring(multiplexer.densityFast, "#.00"), text_color=C_BULL, text_size=size.tiny)
+        table.cell(board, 2, 5, (bearCloudEffect > 0.0 ? "BELOW " : "") + "S " + str.tostring(multiplexer.densitySlow, "#.00"), text_color=C_BEAR, text_size=size.tiny)
+        table.cell(board, 3, 5, (multiplexerQuality ? "OPEN " : "HOLD ") + multiplexerLaneName, text_color=multiplexerQuality ? multiplexerCenterColor : C_MUTED, text_size=size.tiny, tooltip="State " + multiplexerEntropyName + " | entropy " + str.tostring(multiplexer.entropyComposite, "#.000") + " | confidence " + str.tostring(multiplexer.confidence, "#.000") + " | agreement " + str.tostring(multiplexer.agreement, "#.000") + " | temp_atten " + str.tostring(temp_atten, "#.000") + " | F/M/S density " + str.tostring(multiplexer.densityFast, "#.00") + "/" + str.tostring(multiplexer.densityMedium, "#.00") + "/" + str.tostring(multiplexer.densitySlow, "#.00"))
+        table.cell(board, 0, 6, "AGREE / EDGE", text_color=C_MUTED, text_size=size.tiny)
+        table.cell(board, 1, 6, str.tostring(scoreAgreement * 100.0, "#") + "%", text_color=directionColor, text_size=size.tiny)
+        table.cell(board, 2, 6, "CX " + str.tostring(scoreConflict * 100.0, "#") + "%", text_color=scoreConflict > 0.35 ? C_GOLD : C_MUTED, text_size=size.tiny)
+        table.cell(board, 3, 6, (scoreEdge >= 0.0 ? "+" : "") + str.tostring(scoreEdge * 100.0, "#.0"), text_color=scoreEdge > 0.0 ? C_BULL : scoreEdge < 0.0 ? C_BEAR : C_MUTED, text_size=size.tiny)
+        table.cell(board, 0, 7, "REVERSION", text_color=C_MUTED, text_size=size.tiny)
+        table.cell(board, 1, 7, str.tostring(bullReversionEffect, "#.00"), text_color=C_BULL, text_size=size.tiny)
+        table.cell(board, 2, 7, str.tostring(bearReversionEffect, "#.00"), text_color=C_BEAR, text_size=size.tiny)
+        table.cell(board, 3, 7, "Z " + str.tostring(zScore, "#.00"), text_color=math.abs(zScore) >= 1.0 ? C_GOLD : C_MUTED, text_size=size.tiny)
+        table.cell(board, 0, 8, "WAVE / VOL", text_color=C_MUTED, text_size=size.tiny)
+        table.cell(board, 1, 8, waveLong ? "W+" : volatilityLong ? "BREAK" : "—", text_color=C_BULL, text_size=size.tiny)
+        table.cell(board, 2, 8, waveShort ? "W-" : volatilityShort ? "BREAK" : "—", text_color=C_BEAR, text_size=size.tiny)
+        table.cell(board, 3, 8, "D " + str.tostring(wave / math.max(atr, syminfo.mintick), "#.000"), text_color=C_RAPID, text_size=size.tiny)
+        table.cell(board, 0, 9, "POSITION", text_color=C_MUTED, text_size=size.tiny)
+        table.cell(board, 1, 9, strategy.position_size > 0 ? "LONG" : strategy.position_size < 0 ? "SHORT" : "FLAT", text_color=energyColor, text_size=size.tiny)
+        table.cell(board, 2, 9, "R " + str.tostring(displayedRescueCycles) + "/" + str.tostring(rescueMaximumCycles), text_color=C_GOLD, text_size=size.tiny)
+        table.cell(board, 3, 9, inPosition ? str.tostring(strategy.openprofit, "#.##") : "—", text_color=strategy.openprofit >= 0.0 ? C_BULL : C_BEAR, text_size=size.tiny)
+        table.cell(board, 0, 10, "DECISION", text_color=C_MUTED, bgcolor=color.new(C_DARK, 30), text_size=size.tiny)
+        table.cell(board, 1, 10, str.tostring(direction), text_color=directionColor, bgcolor=color.new(directionColor, 82), text_size=size.tiny)
+        table.cell(board, 2, 10, not scoreReady ? "ZERO WEIGHT" : multiplexerGateEnabled and not multiplexerQuality ? "MUX HOLD" : "READY", text_color=scoreReady and (not multiplexerGateEnabled or multiplexerQuality) ? C_GOLD : C_BEAR, bgcolor=color.new(C_DARK, 30), text_size=size.tiny)
+        table.cell(board, 3, 10, inPosition ? "MANAGING" : dashboardMode == "Compact" ? "SCAN" : "SCANNING", text_color=inPosition ? C_BLUE : C_MUTED, bgcolor=color.new(C_DARK, 30), text_size=size.tiny)
+        if dashboardMode == "Compact"
+            table.cell(board, 0, 5, "POSITION", text_color=C_MUTED, text_size=size.tiny)
+            table.cell(board, 1, 5, strategy.position_size > 0 ? "LONG" : strategy.position_size < 0 ? "SHORT" : "FLAT", text_color=energyColor, text_size=size.tiny)
+            table.cell(board, 2, 5, "R " + str.tostring(displayedRescueCycles) + "/" + str.tostring(rescueMaximumCycles), text_color=C_GOLD, text_size=size.tiny)
+            table.cell(board, 3, 5, inPosition ? str.tostring(strategy.openprofit, "#.##") : "—", text_color=strategy.openprofit >= 0.0 ? C_BULL : C_BEAR, text_size=size.tiny)
+            table.cell(board, 0, 6, "DECISION", text_color=C_MUTED, bgcolor=color.new(C_DARK, 30), text_size=size.tiny)
+            table.cell(board, 1, 6, str.tostring(direction), text_color=directionColor, bgcolor=color.new(directionColor, 82), text_size=size.tiny)
+            table.cell(board, 2, 6, scoreReady ? "READY" : "ZERO WEIGHT", text_color=scoreReady ? C_GOLD : C_BEAR, bgcolor=color.new(C_DARK, 30), text_size=size.tiny)
+            table.cell(board, 3, 6, inPosition ? "MANAGING" : "SCAN", text_color=inPosition ? C_BLUE : C_MUTED, bgcolor=color.new(C_DARK, 30), text_size=size.tiny)
+            table.clear(board, 0, 7, 3, 10)
+    else
+        table.clear(board, 0, 0, 3, 10)
+
+alertcondition(longApproved, "ETHER long approved", "ETHER long score and spatial gate approved")
+alertcondition(shortApproved, "ETHER short approved", "ETHER short score and spatial gate approved")
+alertcondition(bullIfvgEvent or bearIfvgEvent, "ETHER iFVG event", "ETHER FVG inversion detected")
+alertcondition(multiplexerTransition, "ETHER Multiplexer transition", "ETHER entropy state or dominant density lane changed")

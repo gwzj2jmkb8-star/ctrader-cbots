@@ -1,0 +1,42 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0.
+// © ClassicPotatoChamberXII
+//@version=6
+// @description FVG and permission APIs from 02_SPATIAL_GATES, jade and master.
+library("EP_SpatialGates")
+import ClassicPotatoChamberXII/EP_Types/4 as epTypes
+
+// Caller supplies historical values explicitly; >= preserves attached v2 rules.
+export detectFvg(float h, float l, float highTwoBarsAgo, float lowTwoBarsAgo, float atr, float minimumAtr) =>
+    [l > highTwoBarsAgo and l - highTwoBarsAgo >= atr * minimumAtr,
+     h < lowTwoBarsAgo and lowTwoBarsAgo - h >= atr * minimumAtr]
+
+// Legacy shard uses strict > on gap size, with a 14-bar ATR.
+export f_detect_fvg(float minimumAtr) =>
+    float atr = ta.atr(14)
+    [low > high[2] and low - high[2] > minimumAtr * atr,
+     high < low[2] and low[2] - high > minimumAtr * atr]
+
+export f_get_spatial_permission(bool bullFvg, bool bearFvg, bool bBull, bool bBear, bool cBull, bool cBear) =>
+    bool longAllowed = bullFvg and (bBull or cBull)
+    bool shortAllowed = bearFvg and (bBear or cBear)
+    longAllowed ? epTypes.Permission.OFFENSIVE : shortAllowed ? epTypes.Permission.DEFENSIVE : epTypes.Permission.WAIT
+
+// Old shard's standing level conditions are kept distinct from v2 crossover BOS.
+export legacyStructure(simple int lookback, float chochAtr) =>
+    float ph = ta.pivothigh(lookback, lookback)
+    float pl = ta.pivotlow(lookback, lookback)
+    var float lastHigh = na
+    var float lastLow = na
+    if not na(ph)
+        lastHigh := ph
+    if not na(pl)
+        lastLow := pl
+    float atr = ta.atr(14)
+    bool bull = close > lastHigh
+    bool bear = close < lastLow
+    [ph, pl, lastHigh, lastLow, bull, bear, bull and close - lastHigh > chochAtr * atr, bear and lastLow - close > chochAtr * atr]
+
+export legacyPermission(float minimumAtr, simple int lookback, float chochAtr) =>
+    [bullFvg, bearFvg] = f_detect_fvg(minimumAtr)
+    [ph, pl, lastH, lastL, bull, bear, chochBull, chochBear] = legacyStructure(lookback, chochAtr)
+    f_get_spatial_permission(bullFvg, bearFvg, bull, bear, chochBull, chochBear)

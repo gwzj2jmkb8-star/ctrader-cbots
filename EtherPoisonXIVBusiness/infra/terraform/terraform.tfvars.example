@@ -1,0 +1,14 @@
+aws_region       = "eu-west-1"
+unit_id          = "ether-poison-xiv"
+owner_tag        = "mati"
+environment      = "demo"
+symbol           = "XAUUSD"
+period           = "h4"
+desired_count    = 0
+release_approved = false
+live_trading_approved = false
+
+# Set these after the cTrader build, broker validation, and image push.
+# ctid       = "your cTrader ID"
+# account_id = "dedicated demo account ID"
+# image_tag  = "reviewed-v0-1-0"

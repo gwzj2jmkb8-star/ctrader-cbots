@@ -1,0 +1,37 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0.
+// © ClassicPotatoChamberXII
+//@version=6
+library("EP_Engines")
+
+export midpoint(float highValue, float lowValue) =>
+    (highValue + lowValue) * 0.5
+
+export kineticMagnitude(float source, float sourcePast, float atr, float scale) =>
+    float raw = math.abs(source - sourcePast) / math.max(atr, 1e-6)
+    float bounded = math.min(raw / math.max(scale, 1e-6), 1.0)
+    math.min(math.tan(bounded * math.pi / 4.0), 1.0)
+
+export zScore(float source, simple int length) =>
+    float basis = ta.sma(source, length)
+    float deviation = ta.stdev(source, length)
+    deviation > 0.0 ? (source - basis) / deviation : 0.0
+
+export normalizeSigned(float value, float scale) =>
+    math.max(-1.0, math.min(1.0, value / math.max(math.abs(scale), 1e-6)))
+
+export rescueQuantity(float currentQuantity, float currentAverage, float rescuePrice, float targetAverage, bool isLong, float maximumMultiple) =>
+    float denominator = isLong ? targetAverage - rescuePrice : rescuePrice - targetAverage
+    float numerator = isLong ? currentQuantity * (currentAverage - targetAverage) : currentQuantity * (targetAverage - currentAverage)
+    float rawQuantity = denominator > 0.0 and numerator > 0.0 ? numerator / denominator : 0.0
+    math.min(rawQuantity, currentQuantity * math.max(maximumMultiple, 0.0))
+
+// Multiplexer Cloud 
+// Ichimoku is strategy where trader is looking for indication for where is the price: is it under, over or inside the cloud and leaves [signature] with navigation mark.
+// Its FVG cloud makes it filled up telling how much distance is available to burn volume and in to which forces its gonna be spread a.
+// Pivots H and L tells us the maximum dependency on trade lenghts, positions who just went behind the Ph and Pl levels look for opposite directions unless they have earlier signals from other indicaors.
+// 5D oscillator should tell the amounts of Volume, Momentum, Expansion, Supertrend and both regression specs who makes deciion while know about position against cloud.
+// Label + traject data is for user experience to see where is the signal from which point.
+// Additionally, we look at the cloud (each one of them): position, fill in value, angle, trend - they tells where we go with better details.
+
+// export multiplexer_cloud(float source, float SpanA, float SpanB, float atr, float scale, float PivotH, float PivotL, float momentum, float deviation, float superbollinger, float supertrend, simple int lenght) =>
+///    float multiplexer_

@@ -1,0 +1,39 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0.
+// © ClassicPotatoChamberXII
+//@version=6
+library("EP_Types")
+
+export enum Direction
+    LONG = "LONG"
+    SHORT = "SHORT"
+    WAIT = "WAIT"
+
+export enum EnergyState
+    EXPANSION = "EXPANSION"
+    IMPULSE = "IMPULSE"
+    BALANCED = "BALANCED"
+    COMPRESSION = "COMPRESSION"
+
+export enum GateState
+    OPEN = "OPEN"
+    PARTIAL = "PARTIAL"
+    BLOCKED = "BLOCKED"
+
+export enum FvgState
+    NONE = "NONE"
+    FRESH = "FRESH"
+    PARTIAL = "PARTIAL"
+    INVERTED = "INVERTED"
+    FILLED = "FILLED"
+
+export type EngineState
+    Direction direction = Direction.WAIT
+    EnergyState energy = EnergyState.BALANCED
+    GateState gate = GateState.BLOCKED
+    float longScore = 0.0
+    float shortScore = 0.0
+    float conviction = 0.0
+    string reason = "WAIT"
+
+export directionValue(Direction direction) =>
+    direction == Direction.LONG ? 1 : direction == Direction.SHORT ? -1 : 0

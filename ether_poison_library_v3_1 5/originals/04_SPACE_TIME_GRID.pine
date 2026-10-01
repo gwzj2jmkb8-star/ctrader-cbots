@@ -1,0 +1,82 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © ClassicPotatoChamberXII
+
+//@version=6
+// @description The Space-Time Grid for ETHER POISON.
+// Implements a professional blend of Ichimoku, Time-Waves, and Volatility Channels.
+
+import EP_Math as math_ep
+import EP_Types as types_ep
+
+// =============================================================================
+// 01. CONFIGURATION - PROFESSIONAL GRID
+// =============================================================================
+var string G_TIME = "Time Theory & Waves"
+time_rail_len   = input.int(21, "Time Rail Lookback", minval=5, group=G_TIME)
+wave_sensitivity = input.float(1.2, "Wave Flux Sensitivity", step=0.1, group=G_TIME)
+
+var string G_CLOUD = "Dual-Span Cloud Engine"
+span_a_len      = input.int(9, "Accumulation Span (A)", group=G_CLOUD)
+span_b_len      = input.int(26, "Distribution Span (B)", group=G_CLOUD)
+rapid_exp_mult  = input.float(1.5, "Rapid Expansion Mult", step=0.1, group=G_CLOUD)
+
+var string G_VOL = "Volatility & Mean Reversion"
+sb_len          = input.int(20, "SuperBoll Length", group=G_VOL)
+sb_mult         = input.float(2.0, "SuperBoll StdDev", group=G_VOL)
+
+// =============================================================================
+// 02. DUAL-SPAN CLOUD (ACCUMULATION vs DISTRIBUTION)
+// =============================================================================
+
+// Professional Span A (Accumulation) - Fast response to current energy
+float spanA = (ta.highest(high, span_a_len) + ta.lowest(low, span_a_len)) / 2
+// Professional Span B (Distribution) - Slow response to deep structural energy
+float spanB = (ta.highest(high, span_b_len) + ta.lowest(low, span_b_len)) / 2
+
+// The "Parallel" Clouds
+// Cloud 1: Immediate proximity to candles (Accumulated Value)
+float cloud1_top = math.max(spanA, spanB)
+float cloud1_bot = math.min(spanA, spanB)
+
+// Cloud 2: Rapid Expansion (The "Lethal" Stretch)
+float rapidA = spanA * (1 + (rapid_exp_mult * 0.01))
+float rapidB = spanB * (1 - (rapid_exp_mult * 0.01))
+
+// =============================================================================
+// 03. TIME THEORY WAVES & GRID
+// =============================================================================
+
+// Calculating the "Time Rail" - The horizontal projection of energy
+float wave_energy = ta.sma(math.abs(close - close[1]), time_rail_len)
+float time_grid_level = ta.vwap
+
+// Rapid Expansion Ichimoku Logic
+float ichi_tenkan = (ta.highest(high, 9) + ta.lowest(low, 9)) / 2
+float ichi_kijun  = (ta.highest(high, 26) + ta.lowest(low, 26)) / 2
+float ichi_spanA  = (ichi_tenkan + ichi_kijun) / 2
+float ichi_spanB  = (ta.highest(high, 52) + ta.lowest(low, 52)) / 2
+
+// =============================================================================
+// 04. MEAN REVERSION & VOLATILITY BREAKOUT
+// =============================================================================
+
+float sb_ma = ta.sma(close, sb_len)
+float sb_dev = ta.stdev(close, sb_len)
+float sb_upper = sb_ma + (sb_dev * sb_mult)
+float sb_lower = sb_ma - (sb_dev * sb_mult)
+
+// Professional Volatility Breakout
+bool vol_breakout_up = close > sb_upper and close > high[1]
+bool vol_breakout_dn = close < sb_lower and close < low[1]
+
+// =============================================================================
+// 05. EXPORT FOR RENDER ENGINE
+// =============================================================================
+
+// We plot these as hidden values so the Render Engine can pick them up
+plot(spanA, "Accumulation Span", display=display.none)
+plot(spanB, "Distribution Span", display=display.none)
+plot(sb_upper, "SuperBoll Upper", display=display.none)
+plot(sb_lower, "SuperBoll Lower", display=display.none)
+plot(ichi_spanA, "Ichi Span A", display=display.none)
+plot(ichi_spanB, "Ichi Span B", display=display.none)

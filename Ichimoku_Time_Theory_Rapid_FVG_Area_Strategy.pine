@@ -1,0 +1,428 @@
+//@version=6
+strategy(
+    "Ichimoku Time Theory • Rapid FVG Area Strategy",
+    overlay = false,
+    initial_capital = 10000,
+    pyramiding = 0,
+    commission_type = strategy.commission.percent,
+    commission_value = 0.06,
+    slippage = 1,
+    process_orders_on_close = true,
+    calc_on_order_fills = true,
+    max_boxes_count = 240,
+    max_lines_count = 240,
+    max_labels_count = 240
+)
+
+//=============================================================================
+// 01. INPUTS + PALETTE
+//=============================================================================
+
+groupCloud = "01 • Ichimoku / Area Cloud"
+tenkanLen = input.int(9, "Tenkan length", group = groupCloud)
+kijunLen = input.int(26, "Kijun length", group = groupCloud)
+spanBLen = input.int(52, "Span B length", group = groupCloud)
+displacement = input.int(26, "Cloud displacement", group = groupCloud)
+cloudSmooth = input.int(5, "Area smoothing", group = groupCloud)
+showCloud = input.bool(true, "Show projected A/B cloud", group = groupCloud)
+showArea = input.bool(true, "Show rapid FVG area cloud", group = groupCloud)
+
+groupFvg = "02 • Rapid Expansion / FVG"
+atrLen = input.int(14, "ATR length", group = groupFvg)
+expansionAtr = input.float(1.25, "Expansion body × ATR", step = 0.05, group = groupFvg)
+volumeLen = input.int(20, "Volume baseline", group = groupFvg)
+volumeFactor = input.float(1.10, "Volume expansion factor", step = 0.05, group = groupFvg)
+fvgQuantity = input.int(24, "Visible FVG boxes", group = groupFvg)
+mitigationMode = input.string("Midpoint", "Mitigation", options = ["Touch", "Midpoint", "Full fill"], group = groupFvg)
+extendFvg = input.bool(true, "Extend active FVGs", group = groupFvg)
+
+groupStructure = "03 • Pivots / Waves"
+pivotLeft = input.int(5, "Pivot left", group = groupStructure)
+pivotRight = input.int(5, "Pivot right", group = groupStructure)
+swingMemory = input.int(100, "Swing recency", group = groupStructure)
+fastGoldenLen = input.int(50, "Golden wave fast", group = groupStructure)
+slowGoldenLen = input.int(200, "Golden wave slow", group = groupStructure)
+timeTolerance = input.int(1, "Time-wave tolerance", group = groupStructure)
+showPivots = input.bool(true, "Show pivots and wave labels", group = groupStructure)
+
+groupOsc = "04 • Multidimensional Oscillators"
+rsiLen = input.int(14, "RSI length", group = groupOsc)
+stochLen = input.int(14, "Stochastic length", group = groupOsc)
+rocLen = input.int(9, "ROC length", group = groupOsc)
+regLen = input.int(34, "Regression dimension", group = groupOsc)
+oscSmooth = input.int(5, "Composite smoothing", group = groupOsc)
+breakoutBand = input.float(35.0, "Breakout threshold", step = 1.0, group = groupOsc)
+reversionBand = input.float(55.0, "Reversion extreme", step = 1.0, group = groupOsc)
+
+groupTrade = "05 • Entries / Risk"
+tradeMode = input.string("Breakout + Reversion", "Signal mode", options = ["Breakout", "Reversion", "Breakout + Reversion"], group = groupTrade)
+minimumScore = input.float(70.0, "Perfect-entry score", step = 1.0, group = groupTrade)
+riskPercent = input.float(1.0, "Equity risk %", step = 0.1, group = groupTrade)
+stopAtr = input.float(1.8, "Stop × ATR", step = 0.1, group = groupTrade)
+targetAtr = input.float(3.2, "Target × ATR", step = 0.1, group = groupTrade)
+trailAtr = input.float(1.2, "Trail activation × ATR", step = 0.1, group = groupTrade)
+allowLong = input.bool(true, "Long entries", group = groupTrade)
+allowShort = input.bool(true, "Short entries", group = groupTrade)
+
+colorBull = input.color(color.rgb(0, 220, 170), "Bull", group = "06 • Palette")
+colorBear = input.color(color.rgb(255, 72, 106), "Bear", group = "06 • Palette")
+colorGold = input.color(color.rgb(255, 193, 7), "Time / Gold", group = "06 • Palette")
+colorNeutral = input.color(color.rgb(116, 128, 154), "Neutral", group = "06 • Palette")
+
+//=============================================================================
+// 02. PURE UTILITIES
+//=============================================================================
+
+f_midrange(int length) =>
+    (ta.highest(high, length) + ta.lowest(low, length)) * 0.5
+
+f_clamp(float value, float floor, float ceiling) =>
+    math.max(floor, math.min(ceiling, value))
+
+f_signed_norm(float value, float scale) =>
+    scale == 0.0 ? 0.0 : f_clamp(100.0 * value / scale, -100.0, 100.0)
+
+f_time_hit(int age, int tolerance) =>
+    math.abs(age - 9) <= tolerance or
+        math.abs(age - 17) <= tolerance or
+        math.abs(age - 26) <= tolerance or
+        math.abs(age - 33) <= tolerance or
+        math.abs(age - 42) <= tolerance or
+        math.abs(age - 65) <= tolerance or
+        math.abs(age - 76) <= tolerance
+
+f_qty(float riskCash, float stopDistance) =>
+    stopDistance > syminfo.mintick ? riskCash / stopDistance : 0.0
+
+//=============================================================================
+// 03. ICHIMOKU, EXPANSION, FVG + STRUCTURE CALCULATIONS
+//=============================================================================
+
+tenkan = f_midrange(tenkanLen)
+kijun = f_midrange(kijunLen)
+spanA = (tenkan + kijun) * 0.5
+spanB = f_midrange(spanBLen)
+cloudTop = math.max(spanA, spanB)
+cloudBottom = math.min(spanA, spanB)
+futureBull = spanA > spanB
+
+atr = ta.atr(atrLen)
+body = math.abs(close - open)
+volumeBase = ta.sma(volume, volumeLen)
+volumeImpulse = na(volume) or na(volumeBase) or volume >= volumeBase * volumeFactor
+rapidBull = close > open and body >= atr * expansionAtr and volumeImpulse
+rapidBear = close < open and body >= atr * expansionAtr and volumeImpulse
+
+bullFvg = low > high[2]
+bearFvg = high < low[2]
+bullRapidFvg = bullFvg and rapidBull[1]
+bearRapidFvg = bearFvg and rapidBear[1]
+bullGapTop = bullFvg ? low : na
+bullGapBottom = bullFvg ? high[2] : na
+bearGapTop = bearFvg ? low[2] : na
+bearGapBottom = bearFvg ? high : na
+bullGapMid = (bullGapTop + bullGapBottom) * 0.5
+bearGapMid = (bearGapTop + bearGapBottom) * 0.5
+
+var float activeBullTop = na
+var float activeBullBottom = na
+var float activeBearTop = na
+var float activeBearBottom = na
+
+if bullRapidFvg
+    activeBullTop := bullGapTop
+    activeBullBottom := bullGapBottom
+
+if bearRapidFvg
+    activeBearTop := bearGapTop
+    activeBearBottom := bearGapBottom
+
+bullMitigated = not na(activeBullBottom) and (
+    mitigationMode == "Touch" ? low <= activeBullTop :
+        mitigationMode == "Midpoint" ? low <= (activeBullTop + activeBullBottom) * 0.5 :
+            low <= activeBullBottom
+)
+bearMitigated = not na(activeBearTop) and (
+    mitigationMode == "Touch" ? high >= activeBearBottom :
+        mitigationMode == "Midpoint" ? high >= (activeBearTop + activeBearBottom) * 0.5 :
+            high >= activeBearTop
+)
+
+if bullMitigated
+    activeBullTop := na
+    activeBullBottom := na
+
+if bearMitigated
+    activeBearTop := na
+    activeBearBottom := na
+
+fvgCenterRaw = not na(activeBullTop) ? (activeBullTop + activeBullBottom) * 0.5 :
+    not na(activeBearTop) ? (activeBearTop + activeBearBottom) * 0.5 :
+        (cloudTop + cloudBottom) * 0.5
+fvgCenter = ta.ema(fvgCenterRaw, cloudSmooth)
+fvgUpper = ta.ema(not na(activeBullTop) ? activeBullTop : not na(activeBearTop) ? activeBearTop : cloudTop, cloudSmooth)
+fvgLower = ta.ema(not na(activeBullBottom) ? activeBullBottom : not na(activeBearBottom) ? activeBearBottom : cloudBottom, cloudSmooth)
+
+pivotHigh = ta.pivothigh(high, pivotLeft, pivotRight)
+pivotLow = ta.pivotlow(low, pivotLeft, pivotRight)
+var float lastSwingHigh = na
+var float priorSwingHigh = na
+var int lastSwingHighBar = na
+var float lastSwingLow = na
+var float priorSwingLow = na
+var int lastSwingLowBar = na
+
+if not na(pivotHigh)
+    priorSwingHigh := lastSwingHigh
+    lastSwingHigh := pivotHigh
+    lastSwingHighBar := bar_index - pivotRight
+
+if not na(pivotLow)
+    priorSwingLow := lastSwingLow
+    lastSwingLow := pivotLow
+    lastSwingLowBar := bar_index - pivotRight
+
+higherHigh = not na(lastSwingHigh) and not na(priorSwingHigh) and lastSwingHigh > priorSwingHigh
+higherLow = not na(lastSwingLow) and not na(priorSwingLow) and lastSwingLow > priorSwingLow
+lowerHigh = not na(lastSwingHigh) and not na(priorSwingHigh) and lastSwingHigh < priorSwingHigh
+lowerLow = not na(lastSwingLow) and not na(priorSwingLow) and lastSwingLow < priorSwingLow
+bullStructure = higherHigh and higherLow
+bearStructure = lowerHigh and lowerLow
+
+barsFromHigh = na(lastSwingHighBar) ? 100000 : bar_index - lastSwingHighBar
+barsFromLow = na(lastSwingLowBar) ? 100000 : bar_index - lastSwingLowBar
+bullTimeWave = f_time_hit(barsFromLow, timeTolerance)
+bearTimeWave = f_time_hit(barsFromHigh, timeTolerance)
+timeWave = bullTimeWave or bearTimeWave
+
+// Elliott-style state is objective and pivot-based: impulse 1/3/5 requires
+// alternating confirmed swings and structure expansion. It is not discretionary
+// Elliott labeling and does not inspect future bars beyond pivot confirmation.
+var int bullWave = 0
+var int bearWave = 0
+if not na(pivotLow) and higherLow
+    bullWave := bullWave == 0 or bullWave >= 5 ? 1 : bullWave + 1
+if not na(pivotHigh) and higherHigh
+    bullWave := bullWave == 0 ? 1 : math.min(5, bullWave + 1)
+if not na(pivotHigh) and lowerHigh
+    bearWave := bearWave == 0 or bearWave >= 5 ? 1 : bearWave + 1
+if not na(pivotLow) and lowerLow
+    bearWave := bearWave == 0 ? 1 : math.min(5, bearWave + 1)
+bullImpulseWave = bullWave == 3 or bullWave == 5
+bearImpulseWave = bearWave == 3 or bearWave == 5
+
+goldFast = ta.ema(close, fastGoldenLen)
+goldSlow = ta.ema(close, slowGoldenLen)
+goldenCross = ta.crossover(goldFast, goldSlow)
+deathCross = ta.crossunder(goldFast, goldSlow)
+goldBull = goldFast > goldSlow and goldFast > goldFast[1]
+goldBear = goldFast < goldSlow and goldFast < goldFast[1]
+tenkanBullCross = ta.crossover(tenkan, kijun)
+tenkanBearCross = ta.crossunder(tenkan, kijun)
+
+//=============================================================================
+// 04. MULTIDIMENSIONAL OSCILLATOR + MARKET CLASSIFICATION
+//=============================================================================
+
+rsiDimension = (ta.rsi(close, rsiLen) - 50.0) * 2.0
+stochRaw = ta.stoch(close, high, low, stochLen)
+stochDimension = (stochRaw - 50.0) * 2.0
+rocRaw = ta.roc(close, rocLen)
+rocScale = ta.stdev(rocRaw, regLen)
+rocDimension = f_signed_norm(rocRaw, nz(rocScale, 1.0) * 2.0)
+regression = ta.linreg(close, regLen, 0)
+regressionPrior = ta.linreg(close, regLen, 1)
+regressionSlope = regression - regressionPrior
+regDimension = f_signed_norm(regressionSlope, atr / regLen)
+cloudDimension = close > cloudTop ? 100.0 : close < cloudBottom ? -100.0 : f_signed_norm(close - (cloudTop + cloudBottom) * 0.5, math.max(cloudTop - cloudBottom, syminfo.mintick))
+compositeRaw = (rsiDimension + stochDimension + rocDimension + regDimension + cloudDimension) / 5.0
+composite = ta.ema(compositeRaw, oscSmooth)
+signal = ta.ema(composite, oscSmooth)
+dimensionSpread = composite - signal
+
+cloudBull = close > cloudTop and tenkan > kijun and futureBull
+cloudBear = close < cloudBottom and tenkan < kijun and not futureBull
+breakoutLong = close > nz(lastSwingHigh, high) and composite > breakoutBand and dimensionSpread > 0
+breakoutShort = close < nz(lastSwingLow, low) and composite < -breakoutBand and dimensionSpread < 0
+reversionLong = low <= cloudBottom and composite[1] < -reversionBand and ta.crossover(composite, signal)
+reversionShort = high >= cloudTop and composite[1] > reversionBand and ta.crossunder(composite, signal)
+
+longScore =
+    (cloudBull ? 20.0 : 0.0) +
+    (goldBull ? 15.0 : 0.0) +
+    (bullStructure ? 15.0 : 0.0) +
+    (bullTimeWave ? 10.0 : 0.0) +
+    (bullImpulseWave ? 10.0 : 0.0) +
+    (not na(activeBullTop) ? 10.0 : 0.0) +
+    (composite > signal ? 10.0 : 0.0) +
+    (tenkan > kijun ? 10.0 : 0.0)
+shortScore =
+    (cloudBear ? 20.0 : 0.0) +
+    (goldBear ? 15.0 : 0.0) +
+    (bearStructure ? 15.0 : 0.0) +
+    (bearTimeWave ? 10.0 : 0.0) +
+    (bearImpulseWave ? 10.0 : 0.0) +
+    (not na(activeBearTop) ? 10.0 : 0.0) +
+    (composite < signal ? 10.0 : 0.0) +
+    (tenkan < kijun ? 10.0 : 0.0)
+
+useBreakout = tradeMode == "Breakout" or tradeMode == "Breakout + Reversion"
+useReversion = tradeMode == "Reversion" or tradeMode == "Breakout + Reversion"
+longTrigger = (useBreakout and breakoutLong) or (useReversion and reversionLong)
+shortTrigger = (useBreakout and breakoutShort) or (useReversion and reversionShort)
+perfectLong = allowLong and longTrigger and longScore >= minimumScore and barsFromLow <= swingMemory
+perfectShort = allowShort and shortTrigger and shortScore >= minimumScore and barsFromHigh <= swingMemory
+
+//=============================================================================
+// 05. EXECUTION + RISK
+//=============================================================================
+
+riskCash = strategy.equity * riskPercent * 0.01
+longStopCandidate = math.min(nz(lastSwingLow, close - atr * stopAtr), close - atr * stopAtr)
+shortStopCandidate = math.max(nz(lastSwingHigh, close + atr * stopAtr), close + atr * stopAtr)
+longRiskDistance = close - longStopCandidate
+shortRiskDistance = shortStopCandidate - close
+longQuantity = f_qty(riskCash, longRiskDistance)
+shortQuantity = f_qty(riskCash, shortRiskDistance)
+
+var float longStop = na
+var float longTarget = na
+var float shortStop = na
+var float shortTarget = na
+
+if perfectLong and strategy.position_size <= 0
+    longStop := longStopCandidate
+    longTarget := close + atr * targetAtr
+    strategy.entry("Perfect Long", strategy.long, qty = longQuantity)
+
+if perfectShort and strategy.position_size >= 0
+    shortStop := shortStopCandidate
+    shortTarget := close - atr * targetAtr
+    strategy.entry("Perfect Short", strategy.short, qty = shortQuantity)
+
+if strategy.position_size > 0
+    strategy.exit(
+        "Long Risk",
+        from_entry = "Perfect Long",
+        stop = longStop,
+        limit = longTarget,
+        trail_points = atr * trailAtr / syminfo.mintick,
+        trail_offset = atr * trailAtr / syminfo.mintick
+    )
+
+if strategy.position_size < 0
+    strategy.exit(
+        "Short Risk",
+        from_entry = "Perfect Short",
+        stop = shortStop,
+        limit = shortTarget,
+        trail_points = atr * trailAtr / syminfo.mintick,
+        trail_offset = atr * trailAtr / syminfo.mintick
+    )
+
+if strategy.position_size == 0
+    longStop := na
+    longTarget := na
+    shortStop := na
+    shortTarget := na
+
+//=============================================================================
+// 06. FVG BOX REGISTRY
+//=============================================================================
+
+var array<box> fvgBoxes = array.new<box>()
+
+if bullRapidFvg
+    bullBox = box.new(
+        left = bar_index - 2,
+        top = bullGapTop,
+        right = bar_index,
+        bottom = bullGapBottom,
+        bgcolor = color.new(colorBull, 83),
+        border_color = color.new(colorBull, 28),
+        extend = extendFvg ? extend.right : extend.none,
+        force_overlay = true
+    )
+    array.push(fvgBoxes, bullBox)
+
+if bearRapidFvg
+    bearBox = box.new(
+        left = bar_index - 2,
+        top = bearGapTop,
+        right = bar_index,
+        bottom = bearGapBottom,
+        bgcolor = color.new(colorBear, 83),
+        border_color = color.new(colorBear, 28),
+        extend = extendFvg ? extend.right : extend.none,
+        force_overlay = true
+    )
+    array.push(fvgBoxes, bearBox)
+
+while array.size(fvgBoxes) > math.max(fvgQuantity, 0)
+    retiredBox = array.shift(fvgBoxes)
+    box.delete(retiredBox)
+
+//=============================================================================
+// 07. PRICE-CHART AREA RENDERER
+//=============================================================================
+
+pSpanA = plot(showCloud ? spanA : na, "Senkou Span A", color = color.new(colorBull, 15), offset = displacement, linewidth = 1, force_overlay = true)
+pSpanB = plot(showCloud ? spanB : na, "Senkou Span B", color = color.new(colorBear, 15), offset = displacement, linewidth = 1, force_overlay = true)
+fill(pSpanA, pSpanB, color = showCloud ? color.new(futureBull ? colorBull : colorBear, 84) : na, title = "Projected A/B Cloud")
+
+pFvgUpper = plot(showArea ? fvgUpper : na, "Rapid FVG Area Upper", color = color.new(colorNeutral, 100), force_overlay = true)
+pFvgLower = plot(showArea ? fvgLower : na, "Rapid FVG Area Lower", color = color.new(colorNeutral, 100), force_overlay = true)
+plot(showArea ? fvgCenter : na, "Rapid FVG Equilibrium", color = not na(activeBullTop) ? colorBull : not na(activeBearTop) ? colorBear : colorNeutral, linewidth = 2, style = plot.style_stepline, force_overlay = true)
+fill(pFvgUpper, pFvgLower, color = showArea ? color.new(not na(activeBullTop) ? colorBull : not na(activeBearTop) ? colorBear : colorNeutral, 79) : na, title = "Rapid Expansion FVG Area")
+
+plot(tenkan, "Tenkan", color = color.new(colorBull, 0), linewidth = 1, force_overlay = true)
+plot(kijun, "Kijun", color = color.new(colorBear, 0), linewidth = 1, force_overlay = true)
+plot(goldFast, "Golden Fast", color = color.new(colorGold, 5), linewidth = 2, force_overlay = true)
+plot(goldSlow, "Golden Slow", color = color.new(colorNeutral, 30), linewidth = 2, force_overlay = true)
+plot(lastSwingHigh, "Last Swing High", color = color.new(colorBear, 45), style = plot.style_stepline, force_overlay = true)
+plot(lastSwingLow, "Last Swing Low", color = color.new(colorBull, 45), style = plot.style_stepline, force_overlay = true)
+
+plotshape(showPivots ? pivotHigh : na, "Pivot High", shape.triangledown, location.absolute, colorBear, offset = -pivotRight, size = size.tiny, force_overlay = true)
+plotshape(showPivots ? pivotLow : na, "Pivot Low", shape.triangleup, location.absolute, colorBull, offset = -pivotRight, size = size.tiny, force_overlay = true)
+plotshape(tenkanBullCross, "Bull Senkan Cross", shape.circle, location.belowbar, colorBull, size = size.tiny, force_overlay = true)
+plotshape(tenkanBearCross, "Bear Senkan Cross", shape.circle, location.abovebar, colorBear, size = size.tiny, force_overlay = true)
+plotshape(goldenCross, "Golden Cross", shape.diamond, location.belowbar, colorGold, size = size.small, force_overlay = true)
+plotshape(deathCross, "Death Cross", shape.diamond, location.abovebar, colorBear, size = size.small, force_overlay = true)
+plotshape(perfectLong, "Perfect Long", shape.labelup, location.belowbar, colorBull, text = "PERFECT\nLONG", textcolor = color.black, size = size.tiny, force_overlay = true)
+plotshape(perfectShort, "Perfect Short", shape.labeldown, location.abovebar, colorBear, text = "PERFECT\nSHORT", textcolor = color.white, size = size.tiny, force_overlay = true)
+
+//=============================================================================
+// 08. OSCILLATOR PANE / AREA CHART
+//=============================================================================
+
+hline(0, "Equilibrium", color = color.new(colorNeutral, 55))
+hline(breakoutBand, "Bull breakout", color = color.new(colorBull, 60), linestyle = hline.style_dashed)
+hline(-breakoutBand, "Bear breakout", color = color.new(colorBear, 60), linestyle = hline.style_dashed)
+hline(reversionBand, "Upper reversion", color = color.new(colorGold, 58), linestyle = hline.style_dotted)
+hline(-reversionBand, "Lower reversion", color = color.new(colorGold, 58), linestyle = hline.style_dotted)
+
+oscColor = composite >= 0 ? colorBull : colorBear
+pComposite = plot(composite, "5D Composite", color = oscColor, linewidth = 2, style = plot.style_area)
+pSignal = plot(signal, "Composite Signal", color = color.new(colorGold, 0), linewidth = 2)
+fill(pComposite, pSignal, color = color.new(dimensionSpread >= 0 ? colorBull : colorBear, 78), title = "Breakout / Reversion Pressure")
+plot(rsiDimension, "RSI Dimension", color = color.new(color.aqua, 62), linewidth = 1)
+plot(stochDimension, "Stochastic Dimension", color = color.new(color.fuchsia, 66), linewidth = 1)
+plot(regDimension, "Regression Dimension", color = color.new(colorGold, 65), linewidth = 1)
+
+bgcolor(timeWave ? color.new(colorGold, 91) : na, title = "Ichimoku Time Wave Window")
+plotshape(bullTimeWave, "Bull Time Wave", shape.square, location.bottom, color.new(colorGold, 5), size = size.tiny, text = "T")
+plotshape(bearTimeWave, "Bear Time Wave", shape.square, location.top, color.new(colorGold, 5), size = size.tiny, text = "T")
+
+//=============================================================================
+// 09. DIAGNOSTICS + ALERTS
+//=============================================================================
+
+plot(longScore, "Long Confluence Score", color = color.new(colorBull, 72), display = display.data_window)
+plot(shortScore, "Short Confluence Score", color = color.new(colorBear, 72), display = display.data_window)
+plot(bullWave, "Bull Elliott-style Wave", color = color.new(colorBull, 100), display = display.data_window)
+plot(bearWave, "Bear Elliott-style Wave", color = color.new(colorBear, 100), display = display.data_window)
+
+alertcondition(perfectLong, "Perfect Long Entry", "Ichimoku/FVG multidimensional perfect long entry")
+alertcondition(perfectShort, "Perfect Short Entry", "Ichimoku/FVG multidimensional perfect short entry")
+alertcondition(bullRapidFvg, "Bull Rapid FVG", "Bullish rapid-expansion fair value gap created")
+alertcondition(bearRapidFvg, "Bear Rapid FVG", "Bearish rapid-expansion fair value gap created")

@@ -1,0 +1,51 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0.
+// © ClassicPotatoChamberXII
+//@version=6
+// @description Shared geometry from 04_SPACE_TIME_GRID, jade and the attached v2 master.
+library("EP_SpaceTimeGrid")
+
+export midpoint(float h, float l) =>
+    (h + l) * 0.5
+
+export classical(float h, float l, simple int tenkanLength, simple int kijunLength, simple int spanBLength) =>
+    float tenkan = midpoint(ta.highest(h, tenkanLength), ta.lowest(l, tenkanLength))
+    float kijun = midpoint(ta.highest(h, kijunLength), ta.lowest(l, kijunLength))
+    [tenkan, kijun, (tenkan + kijun) * 0.5, midpoint(ta.highest(h, spanBLength), ta.lowest(l, spanBLength))]
+
+export rapid(float source, float atr, float kinetic, simple int length, float expansion) =>
+    float center = ta.ema(source, length)
+    float width = atr * expansion * (0.5 + kinetic)
+    [center, width, center + width, center - width]
+
+export volatility(float source, float atr, float signedEnergy, simple int fastLength, simple int slowLength, float contourAtr) =>
+    float fastBasis = ta.ema(source, fastLength)
+    float slowBasis = ta.ema(source, slowLength)
+    float contour = atr * contourAtr * signedEnergy
+    [fastBasis, slowBasis, contour, fastBasis + contour, slowBasis - contour]
+
+export reversion(float source, simple int length, float deviationMultiple) =>
+    float basis = ta.ema(source, length)
+    float deviation = ta.stdev(source, length) * deviationMultiple
+    [basis, deviation, basis + deviation, basis - deviation]
+
+export wave(float source, simple int length) =>
+    ta.ema(source - source[1], length)
+
+// Original shard uses percent-price rapid expansion and SMA SuperBoll.
+// Return all calculated channels, including previously hidden wave-energy data.
+export legacyGrid(simple int spanALength, simple int spanBLength, float rapidPercent, simple int bollLength, float bollMultiple, simple int railLength) =>
+    float spanA = midpoint(ta.highest(high, spanALength), ta.lowest(low, spanALength))
+    float spanB = midpoint(ta.highest(high, spanBLength), ta.lowest(low, spanBLength))
+    float rapidA = spanA * (1.0 + rapidPercent * 0.01)
+    float rapidB = spanB * (1.0 - rapidPercent * 0.01)
+    float energy = ta.sma(math.abs(close - close[1]), railLength)
+    float basis = ta.sma(close, bollLength)
+    float deviation = ta.stdev(close, bollLength)
+    float upper = basis + deviation * bollMultiple
+    float lower = basis - deviation * bollMultiple
+    [spanA, spanB, math.max(spanA, spanB), math.min(spanA, spanB), rapidA, rapidB,
+     energy, ta.vwap(hlc3), basis, deviation, upper, lower, close > upper and close > high[1], close < lower and close < low[1]]
+
+// Forward displacement and historical cloud sampling are separate conventions.
+export historicalCloud(float spanA, float spanB, simple int displacement) =>
+    [spanA[displacement], spanB[displacement]]

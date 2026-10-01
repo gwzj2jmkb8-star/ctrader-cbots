@@ -1,0 +1,801 @@
+//@version=6
+
+strategy(
+
+    title="Strategy 02 - SMC/FVG/BOS/CHoCH + Mean Reversion + Adaptive SuperBoll", 
+
+    shorttitle="Functional_Mixture_XIV",
+
+    overlay=true, 
+
+    default_qty_type=strategy.percent_of_equity, 
+
+    default_qty_value=95,
+
+    initial_capital=100000,    
+
+    margin_long=0,
+
+    margin_short=0,
+
+    pyramiding=20,
+
+    calc_on_order_fills=true,
+
+    calc_on_every_tick=true
+
+    )
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+// PART A: STRUCTURE DETECTION CONFIGURATION
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+group_struct = "🔷 STRUCTURE DETECTION (FVG/BOS/CHoCH)"
+
+fvg_enabled         = input.bool(true, "Enable FVG Detection", group=group_struct)
+
+fvg_bullish_color   = input.color(color.new(color.green, 80), "FVG Bullish Color", group=group_struct)
+
+fvg_bearish_color   = input.color(color.new(color.red, 80), "FVG Bearish Color", group=group_struct)
+
+bos_enabled         = input.bool(true, "Enable BOS Detection", group=group_struct)
+
+bos_sensitivity     = input.int(55, "BOS Sensitivity (%)", minval=0, maxval=100, group=group_struct)
+
+bos_color           = input.color(color.new(color.blue, 40), "BOS Marker Color", group=group_struct)
+
+choch_enabled       = input.bool(true, "Enable CHoCH Detection", group=group_struct)
+
+choch_momentum_thr  = input.float(0.5, "CHoCH Momentum Threshold (ATR x)", minval=0.5, maxval=5.0, step=0.5, group=group_struct)
+
+choch_color         = input.color(color.new(color.yellow, 40), "CHoCH Alert Color", group=group_struct)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+// PART B: MEAN REVERSION CONFIGURATION
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+group_mr = "📊 MEAN REVERSION"
+
+mr_enabled          = input.bool(true, "Enable Mean Reversion", group=group_mr)
+
+mr_length           = input.int(254, "Z-Score MA Length", minval=5, group=group_mr)
+
+mr_oversold_z       = input.float(-0.1, "Oversold Z-Score", minval=-15.0, maxval=-0.01, step=0.01, group=group_mr)
+
+mr_overbought_z     = input.float(0.2, "Overbought Z-Score", minval=0.01, maxval=15.0, step=0.01, group=group_mr)
+
+mr_pullback_bars    = input.int(4, "Pullback Confirmation Bars", minval=0, maxval=10, group=group_mr)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+// PART C: ADAPTIVE SUPERBOLL CONFIGURATION
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+group_sb = "📈 ADAPTIVE SUPERBOLL"
+
+sb_enabled          = input.bool(true, "Enable SuperBoll", group=group_sb)
+
+sb_length           = input.int(254, "SuperBoll MA Length", minval=2, maxval=500, group=group_sb)
+
+sb_bullish_color    = input.color(color.new(color.green, 60), "SuperBoll Bullish Color", group=group_sb)
+
+sb_bearish_color    = input.color(color.new(color.red, 60), "SuperBoll Bearish Color", group=group_sb)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+// PART D: SIGNAL & ENTRY/EXIT CONFIGURATION
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+group_signal = "🎯 SIGNAL & TRADING"
+
+signal_min_strength = input.int(2, "Minimum Signal Strength (1-6)", minval=1, maxval=106, group=group_signal)
+
+show_signal_table   = input.bool(true, "Show Signal Table", group=group_signal)
+
+use_sl_tp           = input.bool(true, "Use Stop Loss & Take Profit", group=group_signal)
+
+sl_atr_mult         = input.float(18.5, "Stop Loss (ATR x)", minval=0.01, step=0.01, group=group_signal)
+
+tp_atr_mult         = input.float(14.5, "Take Profit (ATR x)", minval=0.01, step=0.01, group=group_signal)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+// PART E: RESCUE ENGINE CONFIGURATION
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+group_rescue = "🛟 RESCUE ENGINE"
+rescue_enabled = input.bool(true, "Enable rescue engine", group=group_rescue)
+rescue_pivot_left = input.int(5, "Pivot strength left", group=group_rescue)
+rescue_pivot_right = input.int(3, "Pivot confirmation right", group=group_rescue)
+rescue_min_adverse_atr = input.float(1.0, "Minimum adverse distance (ATR x)", step=0.1, group=group_rescue)
+rescue_target_ticks = input.float(2.0, "New average distance from market (ticks)", step=0.25, group=group_rescue)
+rescue_harvest_ticks = input.float(1.0, "Harvest beyond new average (ticks)", step=0.25, group=group_rescue)
+rescue_harvest_percent = input.float(75.0, "Position harvested (%)", step=1.0, group=group_rescue)
+rescue_scale = input.float(1.0, "Calculated rescue size scale", step=0.05, group=group_rescue)
+rescue_max_cycles = input.int(4, "Maximum rescue cycles per position", group=group_rescue)
+rescue_require_reversal_bar = input.bool(true, "Require reversal candle after pivot", group=group_rescue)
+rescue_allow_reverse = input.bool(false, "Reverse remaining position on opposite CHoCH", group=group_rescue)
+rescue_show_levels = input.bool(true, "Show rescue levels", group=group_rescue)
+rescue_show_labels = input.bool(true, "Show rescue events", group=group_rescue)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+// UTILITY FUNCTIONS
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+f_highest(len) =>
+
+    ta.highest(high, len)
+
+f_lowest(len) =>
+
+    ta.lowest(low, len)
+
+f_zscore(src, len) =>
+
+    ma = ta.sma(src, len)
+
+    std = ta.stdev(src, len)
+
+    std > 0 ? (src - ma) / std : 0
+
+f_is_bullish() =>
+
+    close > open
+
+f_rescue_qty_long(current_qty, current_average, rescue_price, target_average) =>
+
+    denominator = target_average - rescue_price
+    numerator = current_qty * (current_average - target_average)
+    denominator > 0 and numerator > 0 ? numerator / denominator : 0.0
+
+f_rescue_qty_short(current_qty, current_average, rescue_price, target_average) =>
+
+    denominator = rescue_price - target_average
+    numerator = current_qty * (target_average - current_average)
+    denominator > 0 and numerator > 0 ? numerator / denominator : 0.0
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+// STRUCTURE DETECTION LOGIC
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+is_fvg_bullish = low > high[2]
+
+is_fvg_bearish = high < low[2]
+
+fvg_active = (is_fvg_bullish or is_fvg_bearish) and fvg_enabled
+
+swing_len = 5
+
+recent_high = f_highest(swing_len)
+
+recent_low = f_lowest(swing_len)
+
+bos_sensitivity_factor = bos_sensitivity / 100.0
+
+bos_threshold_high = recent_high + (recent_high * bos_sensitivity_factor * 0.01)
+
+bos_threshold_low = recent_low - (recent_low * bos_sensitivity_factor * 0.01)
+
+is_bos_bullish = close > bos_threshold_high and close[1] <= bos_threshold_high
+
+is_bos_bearish = close < bos_threshold_low and close[1] >= bos_threshold_low
+
+bos_active = (is_bos_bullish or is_bos_bearish) and bos_enabled
+
+atr_val = ta.atr(14)
+
+momentum = high - low
+
+momentum_ma = ta.sma(momentum, 10)
+
+is_choch_bullish = momentum > (momentum_ma * choch_momentum_thr) and f_is_bullish()
+
+is_choch_bearish = momentum > (momentum_ma * choch_momentum_thr) and not f_is_bullish()
+
+choch_active = (is_choch_bullish or is_choch_bearish) and choch_enabled
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+// MEAN REVERSION LOGIC
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+z_score = f_zscore(close, mr_length)
+
+is_oversold = z_score <= mr_oversold_z
+
+is_overbought = z_score >= mr_overbought_z
+
+z_score_reversed_up = is_oversold and z_score > z_score[1]
+
+z_score_reversed_down = is_overbought and z_score < z_score[1]
+
+mr_signal_long = is_oversold and ta.barssince(z_score_reversed_up) <= mr_pullback_bars
+
+mr_signal_short = is_overbought and ta.barssince(z_score_reversed_down) <= mr_pullback_bars
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+// ADAPTIVE SUPERBOLL
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+sb_ma = ta.sma(close, sb_length)
+
+recent_atr = ta.atr(14)
+
+atr_ma = ta.sma(recent_atr, 20)
+
+vol_ratio = atr_ma > 0 ? recent_atr / atr_ma : 1.0
+
+vol_multiplier = if vol_ratio > 1.2
+
+    2.5
+
+else if vol_ratio < 0.8
+
+    1.5
+
+else
+
+    2.0
+
+sb_std = ta.stdev(close, sb_length)
+
+sb_upper = sb_ma + (sb_std * vol_multiplier)
+
+sb_lower = sb_ma - (sb_std * vol_multiplier)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+// DUAL-LAYER SIGNAL STRENGTH CALCULATION
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+long_strength = (fvg_active and is_fvg_bullish ? 1 : 0) + (bos_active and is_bos_bullish ? 1 : 0) + (choch_active and is_choch_bullish ? 1 : 0) + (mr_signal_long ? 1 : 0) + (close > sb_upper ? 1 : 0) + (f_is_bullish() ? 1 : 0)
+
+short_strength = (fvg_active and is_fvg_bearish ? 1 : 0) + (bos_active and is_bos_bearish ? 1 : 0) + (choch_active and is_choch_bearish ? 1 : 0) + (mr_signal_short ? 1 : 0) + (close < sb_lower ? 1 : 0) + (not f_is_bullish() ? 1 : 0)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+// RESCUE ENGINE • STATE, CALCULATION AND EXECUTION
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+RESCUE_STATE_IDLE = 0
+RESCUE_STATE_RECOVERING = 1
+RESCUE_STATE_HARVESTED = 2
+
+var int rescue_state = RESCUE_STATE_IDLE
+var int rescue_cycles = 0
+var int rescue_position_side = 0
+var float rescue_entry_price = na
+var float rescue_average_target = na
+var float rescue_harvest_price = na
+var float rescue_last_qty = na
+var float rescue_required_notional = na
+var int rescue_closed_trades_before = 0
+
+rescue_tick = syminfo.mintick
+rescue_pivot_left_effective = math.max(1, rescue_pivot_left)
+rescue_pivot_right_effective = math.max(1, rescue_pivot_right)
+rescue_harvest_percent_effective = math.max(0.0, math.min(100.0, rescue_harvest_percent))
+rescue_pivot_low = ta.pivotlow(low, rescue_pivot_left_effective, rescue_pivot_right_effective)
+rescue_pivot_high = ta.pivothigh(high, rescue_pivot_left_effective, rescue_pivot_right_effective)
+
+rescue_long_adverse =
+     strategy.position_size > 0 and
+     close <= strategy.position_avg_price - atr_val * rescue_min_adverse_atr
+
+rescue_short_adverse =
+     strategy.position_size < 0 and
+     close >= strategy.position_avg_price + atr_val * rescue_min_adverse_atr
+
+rescue_long_turn =
+     not na(rescue_pivot_low) and
+     (not rescue_require_reversal_bar or close > open)
+
+rescue_short_turn =
+     not na(rescue_pivot_high) and
+     (not rescue_require_reversal_bar or close < open)
+
+rescue_can_long =
+     rescue_enabled and
+     rescue_long_adverse and
+     rescue_long_turn and
+     rescue_cycles < rescue_max_cycles and
+     rescue_state != RESCUE_STATE_RECOVERING
+
+rescue_can_short =
+     rescue_enabled and
+     rescue_short_adverse and
+     rescue_short_turn and
+     rescue_cycles < rescue_max_cycles and
+     rescue_state != RESCUE_STATE_RECOVERING
+
+if rescue_can_long
+
+    rescue_entry_price := close
+    rescue_average_target := close + math.abs(rescue_target_ticks) * rescue_tick
+    rescue_last_qty :=
+         f_rescue_qty_long(
+             math.abs(strategy.position_size),
+             strategy.position_avg_price,
+             rescue_entry_price,
+             rescue_average_target
+         ) * rescue_scale
+
+    if rescue_last_qty > 0
+
+        rescue_average_target :=
+             (math.abs(strategy.position_size) * strategy.position_avg_price +
+             rescue_last_qty * rescue_entry_price) /
+             (math.abs(strategy.position_size) + rescue_last_qty)
+        rescue_required_notional := rescue_last_qty * rescue_entry_price * syminfo.pointvalue
+        rescue_harvest_price := rescue_average_target + math.abs(rescue_harvest_ticks) * rescue_tick
+        rescue_position_side := 1
+        rescue_cycles += 1
+        rescue_state := RESCUE_STATE_RECOVERING
+        rescue_closed_trades_before := strategy.closedtrades
+        strategy.cancel("LONG_EXIT")
+        strategy.entry("RESCUE_LONG", strategy.long, qty=rescue_last_qty)
+
+        if rescue_show_labels
+
+            label.new(
+                 bar_index,
+                 low,
+                 "RESCUE LONG #" + str.tostring(rescue_cycles) +
+                 "\nQty: " + str.tostring(rescue_last_qty, "#.########") +
+                 "\nTarget avg: " + str.tostring(rescue_average_target, format.mintick) +
+                 "\nNotional: " + str.tostring(rescue_required_notional, "#.##"),
+                 style=label.style_label_up,
+                 color=color.new(color.aqua, 10),
+                 textcolor=color.black,
+                 size=size.tiny
+             )
+
+if rescue_can_short
+
+    rescue_entry_price := close
+    rescue_average_target := close - math.abs(rescue_target_ticks) * rescue_tick
+    rescue_last_qty :=
+         f_rescue_qty_short(
+             math.abs(strategy.position_size),
+             strategy.position_avg_price,
+             rescue_entry_price,
+             rescue_average_target
+         ) * rescue_scale
+
+    if rescue_last_qty > 0
+
+        rescue_average_target :=
+             (math.abs(strategy.position_size) * strategy.position_avg_price +
+             rescue_last_qty * rescue_entry_price) /
+             (math.abs(strategy.position_size) + rescue_last_qty)
+        rescue_required_notional := rescue_last_qty * rescue_entry_price * syminfo.pointvalue
+        rescue_harvest_price := rescue_average_target - math.abs(rescue_harvest_ticks) * rescue_tick
+        rescue_position_side := -1
+        rescue_cycles += 1
+        rescue_state := RESCUE_STATE_RECOVERING
+        rescue_closed_trades_before := strategy.closedtrades
+        strategy.cancel("SHORT_EXIT")
+        strategy.entry("RESCUE_SHORT", strategy.short, qty=rescue_last_qty)
+
+        if rescue_show_labels
+
+            label.new(
+                 bar_index,
+                 high,
+                 "RESCUE SHORT #" + str.tostring(rescue_cycles) +
+                 "\nQty: " + str.tostring(rescue_last_qty, "#.########") +
+                 "\nTarget avg: " + str.tostring(rescue_average_target, format.mintick) +
+                 "\nNotional: " + str.tostring(rescue_required_notional, "#.##"),
+                 style=label.style_label_down,
+                 color=color.new(color.orange, 10),
+                 textcolor=color.black,
+                 size=size.tiny
+             )
+
+rescue_long_harvest =
+     rescue_state == RESCUE_STATE_RECOVERING and
+     rescue_position_side == 1 and
+     strategy.closedtrades > rescue_closed_trades_before
+
+rescue_short_harvest =
+     rescue_state == RESCUE_STATE_RECOVERING and
+     rescue_position_side == -1 and
+     strategy.closedtrades > rescue_closed_trades_before
+
+if rescue_state == RESCUE_STATE_RECOVERING and rescue_position_side == 1
+
+    strategy.exit(
+         "RESCUE_HARVEST_LONG_BASE",
+         from_entry="LONG",
+         limit=rescue_harvest_price,
+         qty_percent=rescue_harvest_percent_effective,
+         comment="RESCUE HARVEST"
+     )
+
+    strategy.exit(
+         "RESCUE_HARVEST_LONG_ADD",
+         from_entry="RESCUE_LONG",
+         limit=rescue_harvest_price,
+         qty_percent=rescue_harvest_percent_effective,
+         comment="RESCUE HARVEST"
+     )
+
+if rescue_state == RESCUE_STATE_RECOVERING and rescue_position_side == -1
+
+    strategy.exit(
+         "RESCUE_HARVEST_SHORT_BASE",
+         from_entry="SHORT",
+         limit=rescue_harvest_price,
+         qty_percent=rescue_harvest_percent_effective,
+         comment="RESCUE HARVEST"
+     )
+
+    strategy.exit(
+         "RESCUE_HARVEST_SHORT_ADD",
+         from_entry="RESCUE_SHORT",
+         limit=rescue_harvest_price,
+         qty_percent=rescue_harvest_percent_effective,
+         comment="RESCUE HARVEST"
+     )
+
+if rescue_long_harvest
+
+    rescue_state := RESCUE_STATE_HARVESTED
+
+if rescue_short_harvest
+
+    rescue_state := RESCUE_STATE_HARVESTED
+
+rescue_reverse_long_to_short =
+     rescue_allow_reverse and
+     rescue_state == RESCUE_STATE_HARVESTED and
+     strategy.position_size > 0 and
+     is_choch_bearish
+
+rescue_reverse_short_to_long =
+     rescue_allow_reverse and
+     rescue_state == RESCUE_STATE_HARVESTED and
+     strategy.position_size < 0 and
+     is_choch_bullish
+
+if rescue_reverse_long_to_short
+
+    strategy.entry("SHORT", strategy.short)
+
+if rescue_reverse_short_to_long
+
+    strategy.entry("LONG", strategy.long)
+
+if strategy.position_size == 0
+
+    rescue_state := RESCUE_STATE_IDLE
+    rescue_cycles := 0
+    rescue_position_side := 0
+    rescue_entry_price := na
+    rescue_average_target := na
+    rescue_harvest_price := na
+    rescue_last_qty := na
+    rescue_required_notional := na
+    rescue_closed_trades_before := strategy.closedtrades
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+// ENTRY/EXIT LOGIC • ORIGINAL SIGNALS PRESERVED
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+entry_long = long_strength >= signal_min_strength
+
+entry_short = short_strength >= signal_min_strength
+
+sl_long = close - (atr_val * sl_atr_mult)
+
+tp_long = close + (atr_val * tp_atr_mult)
+
+sl_short = close + (atr_val * sl_atr_mult)
+
+tp_short = close - (atr_val * tp_atr_mult)
+
+if entry_long and strategy.position_size <= 0
+
+    strategy.entry("LONG", strategy.long)
+
+    if use_sl_tp and rescue_state != RESCUE_STATE_RECOVERING
+
+        strategy.exit("LONG_EXIT", "LONG", stop=sl_long, limit=tp_long)
+
+if entry_short and strategy.position_size >= 0
+
+    strategy.entry("SHORT", strategy.short)
+
+    if use_sl_tp and rescue_state != RESCUE_STATE_RECOVERING
+
+        strategy.exit("SHORT_EXIT", "SHORT", stop=sl_short, limit=tp_short)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+// POSITION DATA LABELS • DISPLAY ONLY
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+show_position_labels = input.bool(
+
+    true,
+
+    "Show position labels",
+
+    group="Position Display"
+
+)
+
+var int last_position_side = 0
+
+active_position_side =
+
+     entry_long and not entry_short ? 1 :
+
+     entry_short and not entry_long ? -1 :
+
+     0
+
+new_position_signal =
+
+     active_position_side != 0 and
+
+     active_position_side != last_position_side
+
+if show_position_labels and new_position_signal
+
+    if active_position_side == 1
+
+        long_risk = close - sl_long
+
+        long_reward = tp_long - close
+
+        long_rr =
+
+             long_risk > 0 ?
+
+             long_reward / long_risk :
+
+             na
+
+        long_label_text =
+
+             "LONG\n" +
+
+             "Entry: " + str.tostring(close, format.mintick) + "\n" +
+
+             "Stop: " + str.tostring(sl_long, format.mintick) + "\n" +
+
+             "Target: " + str.tostring(tp_long, format.mintick) + "\n" +
+
+             "R:R: " + str.tostring(long_rr, "#.##") + "\n" +
+
+             "Strength: " + str.tostring(long_strength, "#.##")
+
+        label.new(
+
+             bar_index,
+
+             low - atr_val * 0.35,
+
+             long_label_text,
+
+             style=label.style_label_up,
+
+             color=color.new(color.lime, 12),
+
+             textcolor=color.white,
+
+             size=size.tiny         )
+
+    if active_position_side == -1
+
+        short_risk = sl_short - close
+
+        short_reward = close - tp_short
+
+        short_rr =
+
+             short_risk > 0 ?
+
+             short_reward / short_risk :
+
+             na
+
+        short_label_text =
+
+             "SHORT\n" +
+
+             "Entry: " + str.tostring(close, format.mintick) + "\n" +
+
+             "Stop: " + str.tostring(sl_short, format.mintick) + "\n" +
+
+             "Target: " + str.tostring(tp_short, format.mintick) + "\n" +
+
+             "R:R: " + str.tostring(short_rr, "#.##") + "\n" +
+
+             "Strength: " + str.tostring(short_strength, "#.##")
+
+        label.new(
+
+             bar_index,
+
+             high + atr_val * 0.35,
+
+             short_label_text,
+
+             style=label.style_label_down,
+
+             color=color.new(color.red, 12),
+
+             textcolor=color.white,
+
+             size=size.tiny
+
+         )
+
+last_position_side := active_position_side
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+// VISUALIZATION: STRUCTURE BOXES & MARKERS
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+if fvg_active
+
+    fvg_color = is_fvg_bullish ? fvg_bullish_color : fvg_bearish_color
+
+    box.new(bar_index - 2, high[2], bar_index, low, border_color=na, bgcolor=fvg_color)
+
+if is_bos_bullish
+
+    line.new(bar_index, recent_low, bar_index, recent_low - (atr_val * 0.5), color=bos_color, width=3, extend=extend.none)
+
+if is_bos_bearish
+
+    line.new(bar_index, recent_high, bar_index, recent_high + (atr_val * 0.5), color=bos_color, width=3, extend=extend.none)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+// VISUALIZATION: SUPERBOLL BANDS
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+//
+
+plot(sb_enabled ? sb_upper : na, "SB Upper", color=color.new(color.gray, 50), linewidth=1)
+
+plot(sb_enabled ? sb_ma : na, "SB MA", color=color.new(color.white, 40), linewidth=2)
+
+plot(sb_enabled ? sb_lower : na, "SB Lower", color=color.new(color.gray, 50), linewidth=1)
+
+p_upper = plot(sb_enabled ? sb_upper : na, display=display.none)
+
+p_lower = plot(sb_enabled ? sb_lower : na, display=display.none)
+
+fill(p_upper, p_lower, color=f_is_bullish() ? color.new(sb_bullish_color, 80) : color.new(sb_bearish_color, 80))
+
+plot(
+     rescue_show_levels and rescue_state == RESCUE_STATE_RECOVERING ? rescue_average_target : na,
+     "Rescue Average Target",
+     color=color.new(color.aqua, 0),
+     linewidth=2,
+     style=plot.style_linebr
+ )
+
+plot(
+     rescue_show_levels and rescue_state == RESCUE_STATE_RECOVERING ? rescue_harvest_price : na,
+     "Rescue Harvest",
+     color=color.new(color.lime, 0),
+     linewidth=2,
+     style=plot.style_linebr
+ )
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+// VISUALIZATION: ENTRY SIGNALS
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+plotshape(entry_long, "Long Signal", shape.triangleup, location=location.belowbar, color=color.new(color.green, 40), size=size.small)
+
+plotshape(entry_short, "Short Signal", shape.triangledown, location=location.abovebar, color=color.new(color.red, 40), size=size.small)
+
+//
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+// SIGNAL TABLE
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+if show_signal_table and barstate.islast
+
+    var table signal_tbl = table.new(position=position.bottom_left, columns=2, rows=9, bgcolor=color.new(color.black, 80), border_color=color.gray, border_width=1)
+
+    table.cell(signal_tbl, 0, 0, "SIGNAL PANEL", text_color=color.white, text_size=size.small, bgcolor=color.new(color.navy, 80))
+
+    table.cell(signal_tbl, 0, 1, "Z-Score", text_color=color.orange, text_size=size.small)
+
+    table.cell(signal_tbl, 1, 1, str.tostring(z_score, "#.##"), text_color=color.orange, text_size=size.small)
+
+    table.cell(signal_tbl, 0, 2, "FVG", text_color=color.gray, text_size=size.small)
+
+    fvg_label = is_fvg_bullish ? "BULL" : is_fvg_bearish ? "BEAR" : "NONE"
+
+    table.cell(signal_tbl, 1, 2, fvg_label, text_color=color.gray, text_size=size.small)
+
+    table.cell(signal_tbl, 0, 3, "BOS", text_color=color.blue, text_size=size.small)
+
+    bos_label = is_bos_bullish ? "BULL" : is_bos_bearish ? "BEAR" : "NONE"
+
+    table.cell(signal_tbl, 1, 3, bos_label, text_color=color.blue, text_size=size.small)
+
+    table.cell(signal_tbl, 0, 4, "CHoCH", text_color=color.yellow, text_size=size.small)
+
+    choch_label = is_choch_bullish ? "BULL" : is_choch_bearish ? "BEAR" : "NONE"
+
+    table.cell(signal_tbl, 1, 4, choch_label, text_color=color.yellow, text_size=size.small)
+
+    table.cell(signal_tbl, 0, 5, "MR Signal", text_color=color.orange, text_size=size.small)
+
+    mr_label = mr_signal_long ? "LONG" : mr_signal_short ? "SHORT" : "NONE"
+
+    table.cell(signal_tbl, 1, 5, mr_label, text_color=color.orange, text_size=size.small)
+
+    table.cell(signal_tbl, 0, 6, "Long Strength", text_color=color.green, text_size=size.small)
+
+    table.cell(signal_tbl, 1, 6, str.tostring(long_strength) + "/6", text_color=color.green, text_size=size.small)
+
+    table.cell(signal_tbl, 0, 7, "Short Strength", text_color=color.red, text_size=size.small)
+
+    table.cell(signal_tbl, 1, 7, str.tostring(short_strength) + "/6", text_color=color.red, text_size=size.small)
+
+    signal_status_color = entry_long ? color.green : entry_short ? color.red : color.gray
+
+    signal_status_text = entry_long ? "LONG ENTRY" : entry_short ? "SHORT ENTRY" : "NO SIGNAL"
+
+    table.cell(signal_tbl, 0, 8, "STATUS", text_color=signal_status_color, text_size=size.small, bgcolor=color.new(color.navy, 50))
+
+    table.cell(signal_tbl, 1, 8, signal_status_text, text_color=signal_status_color, text_size=size.small, bgcolor=color.new(color.navy, 50))
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+// ALERTS
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+if entry_long
+
+    alert("LONG SIGNAL - Strength: " + str.tostring(long_strength) + "/6 | " + syminfo.tickerid, alert.freq_once_per_bar_close)
+
+if entry_short
+
+    alert("SHORT SIGNAL - Strength: " + str.tostring(short_strength) + "/6 | " + syminfo.tickerid, alert.freq_once_per_bar_close)
+
+if rescue_can_long
+
+    alert("RESCUE LONG TRIGGER | " + syminfo.tickerid, alert.freq_once_per_bar_close)
+
+if rescue_can_short
+
+    alert("RESCUE SHORT TRIGGER | " + syminfo.tickerid, alert.freq_once_per_bar_close)
+
+if rescue_long_harvest or rescue_short_harvest
+
+    alert("RESCUE HARVEST TRIGGER | " + syminfo.tickerid, alert.freq_once_per_bar)

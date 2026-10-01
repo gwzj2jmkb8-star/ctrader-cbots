@@ -1,0 +1,305 @@
+//@version=6
+strategy(
+    "Adam Offensive Rapid Expansion • FVG Cloud Regression",
+    overlay = true,
+    initial_capital = 10000,
+    pyramiding = 1,
+    commission_type = strategy.commission.percent,
+    commission_value = 0.05,
+    slippage = 1,
+    process_orders_on_close = true,
+    max_boxes_count = 100,
+    max_lines_count = 200,
+    max_labels_count = 200
+    )
+
+// Publish MatiQuantCore first, then replace the owner and version below.
+import YOUR_TV_USERNAME/MatiQuantCore/1 as mqc
+
+// 01 — Open controls
+string gAdam = "01 • Adam neural pressure"
+float beta1 = input.float(0.88, "Beta 1", step = 0.01, group = gAdam)
+float beta2 = input.float(0.995, "Beta 2", step = 0.001, group = gAdam)
+float alphaAtr = input.float(0.045, "Alpha × ATR", step = 0.005, group = gAdam)
+float epsilon = input.float(0.000001, "Epsilon", group = gAdam)
+float gradientClipAtr = input.float(5.0, "Gradient clip × ATR", step = 0.25, group = gAdam)
+float pressureThreshold = input.float(0.15, "Pressure threshold", step = 0.01, group = gAdam)
+float accelerationThreshold = input.float(0.02, "Acceleration threshold", step = 0.01, group = gAdam)
+
+string gStructure = "02 • Structure"
+int atrLength = input.int(14, "ATR length", group = gStructure)
+int breakoutLength = input.int(12, "Rapid breakout length", group = gStructure)
+int regressionLength = input.int(55, "Regression length", group = gStructure)
+int pivotLeft = input.int(3, "Pivot left", group = gStructure)
+int pivotRight = input.int(3, "Pivot right", group = gStructure)
+float earlyBreakAtr = input.float(0.10, "Early breakout ATR buffer", step = 0.01, group = gStructure)
+int minimumForce = input.int(5, "Minimum linked force", group = gStructure)
+
+string gCloud = "03 • Structured cloud"
+int tenkanLength = input.int(7, "Tenkan", group = gCloud)
+int kijunLength = input.int(22, "Kijun", group = gCloud)
+int spanBLength = input.int(44, "Senkou B", group = gCloud)
+int cloudOffset = input.int(22, "Cloud offset", group = gCloud)
+float cloudThicknessAtr = input.float(1.50, "Maximum cloud thickness × ATR", step = 0.05, group = gCloud)
+
+string gExpansion = "04 • Rapid expansion"
+int expansionLength = input.int(18, "Expansion baseline", group = gExpansion)
+float atrExpansionGate = input.float(1.05, "ATR ratio", step = 0.01, group = gExpansion)
+float bandwidthGate = input.float(1.03, "Bandwidth ratio", step = 0.01, group = gExpansion)
+float volumeGate = input.float(1.05, "Relative volume", step = 0.01, group = gExpansion)
+int ignitionMemory = input.int(4, "Ignition memory", group = gExpansion)
+
+string gTime = "05 • Time series"
+int timeTolerance = input.int(2, "Hosoda tolerance", group = gTime)
+bool requireTimeWindow = input.bool(false, "Require time resonance", group = gTime)
+
+string gRisk = "06 • Offensive position"
+float riskPercent = input.float(1.25, "Equity risk %", step = 0.05, group = gRisk)
+float stopPercent = input.float(0.55, "Minimum SL %", step = 0.05, group = gRisk)
+float targetPercent = input.float(1.20, "Minimum TP %", step = 0.05, group = gRisk)
+float stopAtr = input.float(1.10, "SL × ATR", step = 0.05, group = gRisk)
+float targetAtr = input.float(2.40, "TP × ATR", step = 0.05, group = gRisk)
+float pointValue = input.float(1.0, "Contract point value", group = gRisk)
+float quantityStep = input.float(0.001, "Quantity step", group = gRisk)
+bool trailAfterOneR = input.bool(true, "Trail after one R", group = gRisk)
+
+string gFvg = "07 • FVG field"
+bool showFvg = input.bool(true, "Show FVG boxes", group = gFvg)
+int fvgQuantity = input.int(20, "Box quantity", group = gFvg)
+int fvgReach = input.int(60, "Projection bars", group = gFvg)
+color bullField = input.color(color.new(color.rgb(8, 83, 81), 78), "Bull field", group = gFvg)
+color bearField = input.color(color.new(color.rgb(76, 22, 43), 78), "Bear field", group = gFvg)
+
+string gVisual = "08 • Offensive graphics"
+color teal = input.color(color.rgb(22, 189, 179), "Teal", group = gVisual)
+color rose = input.color(color.rgb(178, 55, 94), "Dark rose", group = gVisual)
+color tealSoft = input.color(color.rgb(99, 226, 213), "Soft teal", group = gVisual)
+color roseSoft = input.color(color.rgb(231, 126, 158), "Soft rose", group = gVisual)
+bool showDashboard = input.bool(true, "Force dashboard", group = gVisual)
+
+// 02 — Runtime-safe lengths
+int atrPeriod = math.max(1, math.abs(atrLength))
+int breakoutPeriod = math.max(2, math.abs(breakoutLength))
+int regressionPeriod = math.max(2, math.abs(regressionLength))
+int leftPeriod = math.max(1, math.abs(pivotLeft))
+int rightPeriod = math.max(1, math.abs(pivotRight))
+int tenkanPeriod = math.max(1, math.abs(tenkanLength))
+int kijunPeriod = math.max(1, math.abs(kijunLength))
+int spanPeriod = math.max(1, math.abs(spanBLength))
+int displacement = math.min(500, math.abs(cloudOffset))
+int expansionPeriod = math.max(2, math.abs(expansionLength))
+int ignitionPeriod = math.max(1, math.abs(ignitionMemory))
+int tolerance = math.abs(timeTolerance)
+int boxLimit = math.max(1, math.min(90, math.abs(fvgQuantity)))
+int boxReach = math.min(500, math.abs(fvgReach))
+float safePointValue = math.max(math.abs(pointValue), 0.000000001)
+float safeQuantityStep = math.max(math.abs(quantityStep), 0.000000001)
+
+// 03 — Adam state: pressure is the primary force
+float atr = ta.atr(atrPeriod)
+var float theta = na
+var float moment = 0.0
+var float variance = 0.0
+var int adamStep = 0
+float momentHat = na
+float varianceHat = na
+float adamPressure = na
+float adamLoss = na
+
+if barstate.isfirst
+    theta := close
+
+if barstate.isconfirmed and not na(atr)
+    adamStep += 1
+    float rawGradient = theta - hlc3
+    float clip = atr * math.abs(gradientClipAtr)
+    float gradient = math.max(-clip, math.min(clip, rawGradient))
+    [nextTheta, nextMoment, nextVariance, nextMomentHat, nextVarianceHat, nextPressure, nextLoss] = mqc.adamDetailed(theta, moment, variance, gradient, beta1, beta2, alphaAtr * atr, math.max(math.abs(epsilon), 0.000000001), adamStep)
+    theta := nextTheta
+    moment := nextMoment
+    variance := nextVariance
+    momentHat := nextMomentHat
+    varianceHat := nextVarianceHat
+    adamPressure := -nextPressure
+    adamLoss := nextLoss
+
+float pressureAcceleration = adamPressure - adamPressure[1]
+bool adamBull = adamPressure > math.abs(pressureThreshold) and pressureAcceleration > accelerationThreshold
+bool adamBear = adamPressure < -math.abs(pressureThreshold) and pressureAcceleration < -accelerationThreshold
+
+// 04 — Regression time series
+float regression = ta.linreg(close, regressionPeriod, 0)
+float regressionPrior = ta.linreg(close, regressionPeriod, 1)
+float regressionSlope = regression - regressionPrior
+float regressionAcceleration = regressionSlope - regressionSlope[1]
+bool regressionBull = regressionSlope > 0 and regressionAcceleration >= 0
+bool regressionBear = regressionSlope < 0 and regressionAcceleration <= 0
+
+// 05 — Structured Ichimoku cloud
+[tenkan, kijun, spanA, spanB] = mqc.ichimoku(tenkanPeriod, kijunPeriod, spanPeriod)
+float cloudTop = math.max(spanA[displacement], spanB[displacement])
+float cloudBottom = math.min(spanA[displacement], spanB[displacement])
+float cloudThickness = cloudTop - cloudBottom
+bool cloudTradable = cloudThickness <= atr * math.abs(cloudThicknessAtr)
+bool cloudBull = close > cloudTop and tenkan > kijun and spanA > spanB and cloudTradable
+bool cloudBear = close < cloudBottom and tenkan < kijun and spanA < spanB and cloudTradable
+
+// 06 — FVG state and bounded fields
+[newBullFvg, newBearFvg, bullTopRaw, bullBottomRaw, bearTopRaw, bearBottomRaw] = mqc.fvg(high[2], low[2], high, low)
+var float bullTop = na
+var float bullBottom = na
+var float bearTop = na
+var float bearBottom = na
+var array<box> gapBoxes = array.new<box>()
+
+if barstate.isconfirmed and newBullFvg
+    bullTop := bullTopRaw
+    bullBottom := bullBottomRaw
+    if showFvg
+        box field = box.new(bar_index - 2, bullTop, bar_index + boxReach, bullBottom, border_color = na, bgcolor = bullField)
+        array.push(gapBoxes, field)
+
+if barstate.isconfirmed and newBearFvg
+    bearTop := bearTopRaw
+    bearBottom := bearBottomRaw
+    if showFvg
+        box field = box.new(bar_index - 2, bearTop, bar_index + boxReach, bearBottom, border_color = na, bgcolor = bearField)
+        array.push(gapBoxes, field)
+
+while array.size(gapBoxes) > boxLimit
+    box.delete(array.shift(gapBoxes))
+
+bool bullFvgForce = not na(bullTop) and close > bullTop and low <= bullTop
+bool bearFvgForce = not na(bearBottom) and close < bearBottom and high >= bearBottom
+bool bullFvgSupport = not na(bullBottom) and close > bullBottom
+bool bearFvgResistance = not na(bearTop) and close < bearTop
+
+// 07 — Compression release and ignition memory
+float basis = ta.sma(close, expansionPeriod)
+float deviation = ta.stdev(close, expansionPeriod) * 2.0
+float bandwidth = deviation * 2.0 / math.max(math.abs(basis), syminfo.mintick)
+float baselineAtr = ta.sma(atr, expansionPeriod)
+float relativeVolume = volume / math.max(ta.sma(volume, expansionPeriod), 1.0)
+[rapidExpansion, atrRatio, bandwidthRatio] = mqc.rapidExpansion(atr, baselineAtr, bandwidth, bandwidth[1], relativeVolume, atrExpansionGate, bandwidthGate, volumeGate)
+bool compression = bandwidth[1] <= ta.lowest(bandwidth, expansionPeriod)[1] * 1.15
+bool ignition = compression and rapidExpansion
+bool ignitionLive = ta.barssince(ignition) <= ignitionPeriod
+
+// 08 — Pivots, time resonance, and early breakout fronts
+float pivotHigh = ta.pivothigh(high, leftPeriod, rightPeriod)
+float pivotLow = ta.pivotlow(low, leftPeriod, rightPeriod)
+var int timeAnchor = na
+if not na(pivotHigh) or not na(pivotLow)
+    timeAnchor := bar_index - rightPeriod
+int barsFromAnchor = na(timeAnchor) ? 0 : bar_index - timeAnchor
+[rawTimeHit, t9, t17, t26, t33, t42, t65, t76] = mqc.timeTheoryHit(barsFromAnchor, tolerance)
+bool timeHit = not na(timeAnchor) and rawTimeHit
+
+float breakoutHigh = ta.highest(high, breakoutPeriod)[1]
+float breakoutLow = ta.lowest(low, breakoutPeriod)[1]
+float offensiveLongFront = breakoutHigh - atr * math.abs(earlyBreakAtr)
+float offensiveShortFront = breakoutLow + atr * math.abs(earlyBreakAtr)
+bool longFrontCross = ta.crossover(close, offensiveLongFront)
+bool shortFrontCross = ta.crossunder(close, offensiveShortFront)
+
+// 09 — Linked-force dependency score
+int longForce = (
+    (adamBull ? 2 : 0) +
+    (ignitionLive ? 2 : 0) +
+    (regressionBull ? 1 : 0) +
+    (cloudBull ? 1 : 0) +
+    (bullFvgForce ? 1 : bullFvgSupport ? 0 : -1) +
+    (timeHit ? 1 : 0))
+
+int shortForce = (
+    (adamBear ? 2 : 0) +
+    (ignitionLive ? 2 : 0) +
+    (regressionBear ? 1 : 0) +
+    (cloudBear ? 1 : 0) +
+    (bearFvgForce ? 1 : bearFvgResistance ? 0 : -1) +
+    (timeHit ? 1 : 0))
+
+bool timeGate = not requireTimeWindow or timeHit
+bool longSignal = barstate.isconfirmed and longFrontCross and adamBull and ignitionLive and longForce >= minimumForce and timeGate
+bool shortSignal = barstate.isconfirmed and shortFrontCross and adamBear and ignitionLive and shortForce >= minimumForce and timeGate
+
+// 10 — Position calculation, fixed initial risk, optional one-R trail
+var float activeStop = na
+var float activeTarget = na
+var float initialRisk = na
+
+if longSignal and strategy.position_size <= 0
+    [stopLevel, targetLevel, stopDistance, targetDistance] = mqc.protectiveLevels(close, atr, true, math.abs(stopPercent), math.abs(targetPercent), math.abs(stopAtr), math.abs(targetAtr))
+    float quantity = mqc.riskQuantity(strategy.equity, math.abs(riskPercent), stopDistance, safePointValue, safeQuantityStep)
+    if quantity > 0
+        activeStop := stopLevel
+        activeTarget := targetLevel
+        initialRisk := stopDistance
+        strategy.entry("OFFENSIVE LONG", strategy.long, qty = quantity)
+
+if shortSignal and strategy.position_size >= 0
+    [stopLevel, targetLevel, stopDistance, targetDistance] = mqc.protectiveLevels(close, atr, false, math.abs(stopPercent), math.abs(targetPercent), math.abs(stopAtr), math.abs(targetAtr))
+    float quantity = mqc.riskQuantity(strategy.equity, math.abs(riskPercent), stopDistance, safePointValue, safeQuantityStep)
+    if quantity > 0
+        activeStop := stopLevel
+        activeTarget := targetLevel
+        initialRisk := stopDistance
+        strategy.entry("OFFENSIVE SHORT", strategy.short, qty = quantity)
+
+if trailAfterOneR and strategy.position_size > 0 and high >= strategy.position_avg_price + initialRisk
+    activeStop := math.max(activeStop, math.max(theta, strategy.position_avg_price))
+
+if trailAfterOneR and strategy.position_size < 0 and low <= strategy.position_avg_price - initialRisk
+    activeStop := math.min(activeStop, math.min(theta, strategy.position_avg_price))
+
+if strategy.position_size > 0
+    strategy.exit("LONG EXIT", "OFFENSIVE LONG", stop = activeStop, limit = activeTarget)
+if strategy.position_size < 0
+    strategy.exit("SHORT EXIT", "OFFENSIVE SHORT", stop = activeStop, limit = activeTarget)
+
+if strategy.position_size == 0 and strategy.position_size[1] != 0
+    activeStop := na
+    activeTarget := na
+    initialRisk := na
+
+// 11 — Graphics; audited worst case 17 / 64 plot counts
+plot(theta, "Adam theta", tealSoft, 3)
+plot(regression, "Regression", roseSoft, 2)
+plot(offensiveLongFront, "Long front", color.new(teal, 20), 2, plot.style_linebr)
+plot(offensiveShortFront, "Short front", color.new(rose, 20), 2, plot.style_linebr)
+plot(tenkan, "Tenkan", teal)
+plot(kijun, "Kijun", rose)
+spanAPlot = plot(spanA, "Senkou A", color.new(teal, 25), offset = displacement)
+spanBPlot = plot(spanB, "Senkou B", color.new(rose, 25), offset = displacement)
+fill(spanAPlot, spanBPlot, spanA >= spanB ? color.new(teal, 84) : color.new(rose, 84), title = "Structured cloud")
+plot(strategy.position_size != 0 ? activeStop : na, "Active stop", rose, 2, plot.style_linebr)
+plot(strategy.position_size != 0 ? activeTarget : na, "Active target", teal, 2, plot.style_linebr)
+
+plotshape(longSignal, "Offensive buy", shape.labelup, location.belowbar, teal, text = "RAPID\nBUY", textcolor = color.black, size = size.small)
+plotshape(shortSignal, "Offensive sell", shape.labeldown, location.abovebar, rose, text = "RAPID\nSELL", textcolor = color.white, size = size.small)
+plotshape(ignition, "Ignition", shape.diamond, location.bottom, color.yellow, size = size.tiny)
+plotshape(timeHit, "Time resonance", shape.circle, location.bottom, tealSoft, size = size.tiny)
+
+var table forcePanel = table.new(position.top_right, 2, 9, bgcolor = color.new(color.rgb(18, 24, 30), 8), frame_color = color.rgb(8, 83, 81), frame_width = 1)
+if showDashboard and barstate.islast
+    table.cell(forcePanel, 0, 0, "OFFENSIVE FORCE", bgcolor = color.rgb(8, 83, 81), text_color = tealSoft)
+    table.cell(forcePanel, 1, 0, ignitionLive ? "IGNITED" : "WAIT", text_color = ignitionLive ? color.yellow : color.silver)
+    table.cell(forcePanel, 0, 1, "Long / short", text_color = color.silver)
+    table.cell(forcePanel, 1, 1, str.tostring(longForce) + " / " + str.tostring(shortForce), text_color = longForce >= shortForce ? teal : rose)
+    table.cell(forcePanel, 0, 2, "Adam pressure", text_color = color.silver)
+    table.cell(forcePanel, 1, 2, str.tostring(adamPressure, "#.####"), text_color = adamPressure >= 0 ? teal : rose)
+    table.cell(forcePanel, 0, 3, "Acceleration", text_color = color.silver)
+    table.cell(forcePanel, 1, 3, str.tostring(pressureAcceleration, "#.####"), text_color = pressureAcceleration >= 0 ? teal : rose)
+    table.cell(forcePanel, 0, 4, "ATR / band", text_color = color.silver)
+    table.cell(forcePanel, 1, 4, str.tostring(atrRatio, "#.##") + " / " + str.tostring(bandwidthRatio, "#.##"), text_color = rapidExpansion ? color.yellow : color.silver)
+    table.cell(forcePanel, 0, 5, "Cloud", text_color = color.silver)
+    table.cell(forcePanel, 1, 5, cloudBull ? "BULL" : cloudBear ? "BEAR" : "BLOCKED", text_color = cloudBull ? teal : cloudBear ? rose : color.silver)
+    table.cell(forcePanel, 0, 6, "FVG force", text_color = color.silver)
+    table.cell(forcePanel, 1, 6, bullFvgForce ? "BULL" : bearFvgForce ? "BEAR" : "NEUTRAL", text_color = bullFvgForce ? teal : bearFvgForce ? rose : color.silver)
+    table.cell(forcePanel, 0, 7, "Time / loss", text_color = color.silver)
+    table.cell(forcePanel, 1, 7, str.tostring(barsFromAnchor) + " / " + str.tostring(adamLoss, "#.####"), text_color = timeHit ? tealSoft : color.silver)
+    table.cell(forcePanel, 0, 8, "Plot budget", text_color = color.silver)
+    table.cell(forcePanel, 1, 8, "17 / 64", text_color = teal)
+
+alertcondition(longSignal, "Offensive rapid long", "Adam rapid-expansion long")
+alertcondition(shortSignal, "Offensive rapid short", "Adam rapid-expansion short")

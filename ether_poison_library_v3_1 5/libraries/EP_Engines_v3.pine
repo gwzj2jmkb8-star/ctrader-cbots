@@ -1,0 +1,84 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0.
+// © ClassicPotatoChamberXII
+//@version=6
+// @description ETHER analytical engines v2, including Multiplexer Cloud.
+library("EP_Engines")
+
+import ClassicPotatoChamberXII/EP_Math/3 as epMath
+import ClassicPotatoChamberXII/EP_Types/4 as epTypes
+import ClassicPotatoChamberXII/EP_KineticCore/1 as kineticCore
+import ClassicPotatoChamberXII/EP_RescueEngine/1 as rescueCore
+import ClassicPotatoChamberXII/EP_SpaceTimeGrid/1 as gridCore
+
+export midpoint(float highValue, float lowValue) =>
+    gridCore.midpoint(highValue, lowValue)
+
+export kineticMagnitude(float source, float sourcePast, float atr, float scale) =>
+    kineticCore.magnitude(source, sourcePast, atr, scale)
+
+export zScore(float source, simple int length) =>
+    float basis = ta.sma(source, length)
+    float deviation = ta.stdev(source, length)
+    deviation > 0.0 ? (source - basis) / deviation : 0.0
+
+export normalizeSigned(float value, float scale) =>
+    epMath.norm(value, scale)
+
+export rescueQuantity(float currentQuantity, float currentAverage, float rescuePrice, float targetAverage, bool isLong, float maximumMultiple) =>
+    rescueCore.quantity(currentQuantity, currentAverage, rescuePrice, targetAverage, isLong, maximumMultiple)
+
+// Three-horizon entropy multiplexer. Density is inverse entropy multiplied by
+// temporal attenuation; no lane receives hidden discretionary weight.
+export multiplexerCloud(
+    float source,
+    float atr,
+    simple int fastLength,
+    simple int mediumLength,
+    simple int slowLength,
+    float temperature,
+    float attenuationFloor,
+    float contourAtr) =>
+    int fastN = math.max(fastLength, 2)
+    int mediumN = math.max(mediumLength, fastN + 1)
+    int slowN = math.max(slowLength, mediumN + 1)
+    float atrSafe = math.max(math.abs(atr), 1e-6)
+
+    float returnNorm = epMath.norm(source - source[1], atrSafe)
+    float probabilityUp = epMath.clamp(0.5 + returnNorm * 0.5, 1e-6, 1.0 - 1e-6)
+    float localEntropy = epMath.binaryEntropy(probabilityUp)
+    float entropyFast = ta.ema(localEntropy, fastN)
+    float entropyMedium = ta.ema(localEntropy, mediumN)
+    float entropySlow = ta.ema(localEntropy, slowN)
+    float entropyComposite = epMath.blend3(entropyFast, 1.0, entropyMedium, 1.0, entropySlow, 1.0)
+    float attenuation = epMath.tempAtten(entropyComposite, temperature, attenuationFloor)
+
+    float directionFast = epMath.norm(ta.ema(source - source[1], fastN), atrSafe)
+    float directionMedium = epMath.norm(ta.ema(source - source[1], mediumN), atrSafe)
+    float directionSlow = epMath.norm(ta.ema(source - source[1], slowN), atrSafe)
+    float densityFast = math.max(1.0 - entropyFast, 0.0) * attenuation
+    float densityMedium = math.max(1.0 - entropyMedium, 0.0) * attenuation
+    float densitySlow = math.max(1.0 - entropySlow, 0.0) * attenuation
+    float densityTotal = densityFast + densityMedium + densitySlow
+
+    float centerFast = ta.ema(source, fastN)
+    float centerMedium = ta.ema(source, mediumN)
+    float centerSlow = ta.ema(source, slowN)
+    float center = densityTotal > 0.0 ? epMath.blend3(centerFast, densityFast, centerMedium, densityMedium, centerSlow, densitySlow) : centerMedium
+    float direction = densityTotal > 0.0 ? epMath.blend3(directionFast, densityFast, directionMedium, densityMedium, directionSlow, densitySlow) : 0.0
+    float laneAgreement = epMath.agreement(directionFast, directionMedium, directionSlow)
+    float inverseEntropy = 1.0 - entropyComposite
+    float cloudConfidence = epMath.confidence(direction, laneAgreement, inverseEntropy)
+    float widthAtr = math.max(contourAtr, 0.0) * (0.35 + entropyComposite * 0.65) * (0.50 + math.abs(direction) * 0.50) * attenuation
+    float directionalShift = direction * atrSafe * widthAtr * 0.35
+    float halfWidth = atrSafe * widthAtr
+    float spanA = center + directionalShift + halfWidth
+    float spanB = center + directionalShift - halfWidth
+
+    epTypes.EntropyState entropyState = entropyComposite <= 0.25 ? epTypes.EntropyState.ORDERED : entropyComposite <= 0.50 ? epTypes.EntropyState.MIXED : entropyComposite <= 0.75 ? epTypes.EntropyState.DIFFUSE : epTypes.EntropyState.CHAOTIC
+    epTypes.CloudLane dominantLane = densityFast >= densityMedium and densityFast >= densitySlow ? epTypes.CloudLane.FAST : densitySlow >= densityFast and densitySlow >= densityMedium ? epTypes.CloudLane.SLOW : epTypes.CloudLane.BALANCED
+    bool valid = not na(spanA) and not na(spanB) and atrSafe > 0.0
+
+    epTypes.CloudState.new(spanA, spanB, center, widthAtr, direction,
+         entropyFast, entropyMedium, entropySlow, entropyComposite, attenuation,
+         densityFast, densityMedium, densitySlow, laneAgreement, cloudConfidence,
+         entropyState, dominantLane, valid)
