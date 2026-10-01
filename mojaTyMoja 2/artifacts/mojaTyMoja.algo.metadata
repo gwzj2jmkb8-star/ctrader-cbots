@@ -1,0 +1,1127 @@
+[
+  {
+    "Flags": "Robot",
+    "Guid": "00000000-0000-0000-0000-000000000000",
+    "Group": "Custom",
+    "FriendlyName": "mojaTyMoja",
+    "ShortName": null,
+    "TypeName": "cAlgo.Robots.mojaTyMoja",
+    "AssemblyName": "mojaTyMoja, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null",
+    "TimeZone": "UTC",
+    "IsOverlay": false,
+    "IsPercentage": false,
+    "ScalePrecision": null,
+    "Levels": [],
+    "DefaultSymbolName": null,
+    "DefaultTimeFrame": null,
+    "Video": null,
+    "Lines": [],
+    "Clouds": [],
+    "Parameters": [
+      {
+        "EnumValues": {
+          "Close": 0,
+          "Open": 1,
+          "High": 2,
+          "Low": 3,
+          "HL2": 4,
+          "HLC3": 5,
+          "OHLC4": 6
+        },
+        "DefaultValue": 0,
+        "ParameterType": "Enum",
+        "PropertyName": "Source",
+        "FriendlyName": "Source",
+        "GroupName": "Core",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 200,
+        "ParameterType": "Integer",
+        "PropertyName": "SmoothingPeriod",
+        "FriendlyName": "Smoothing Period",
+        "GroupName": "Core",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "EnumValues": {
+          "ALMA": 0,
+          "EMA": 1
+        },
+        "DefaultValue": 0,
+        "ParameterType": "Enum",
+        "PropertyName": "SmoothingMethod",
+        "FriendlyName": "Smoothing Method",
+        "GroupName": "Core",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -1.7976931348623157E+308,
+        "MaxValue": 1.7976931348623157E+308,
+        "Step": 0.1,
+        "DefaultValue": 0.94,
+        "ParameterType": "Double",
+        "PropertyName": "AlmaOffset",
+        "FriendlyName": "ALMA Offset Factor",
+        "GroupName": "Core",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -1.7976931348623157E+308,
+        "MaxValue": 1.7976931348623157E+308,
+        "Step": 0.1,
+        "DefaultValue": 121.0,
+        "ParameterType": "Double",
+        "PropertyName": "AlmaSigma",
+        "FriendlyName": "ALMA Sigma Value",
+        "GroupName": "Core",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 2,
+        "ParameterType": "Integer",
+        "PropertyName": "FilterPeriod",
+        "FriendlyName": "FILTER EMA Period",
+        "GroupName": "Core",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 37,
+        "ParameterType": "Integer",
+        "PropertyName": "AtrPeriod",
+        "FriendlyName": "ATR Period Offset",
+        "GroupName": "Envelope",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -1.7976931348623157E+308,
+        "MaxValue": 1.7976931348623157E+308,
+        "Step": 0.1,
+        "DefaultValue": 0.6,
+        "ParameterType": "Double",
+        "PropertyName": "AtrMultiplier",
+        "FriendlyName": "ATR Multiplier Offset",
+        "GroupName": "Envelope",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "EnumValues": {
+          "Stdev": 0,
+          "Mad": 1
+        },
+        "DefaultValue": 0,
+        "ParameterType": "Enum",
+        "PropertyName": "VolMethod",
+        "FriendlyName": "Volatility Calculation",
+        "GroupName": "Envelope",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 1,
+        "ParameterType": "Integer",
+        "PropertyName": "VolPeriod",
+        "FriendlyName": "Volatility Period",
+        "GroupName": "Envelope",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 200,
+        "ParameterType": "Integer",
+        "PropertyName": "VolEmaPeriod",
+        "FriendlyName": "Volatility EMA Period",
+        "GroupName": "Envelope",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -1.7976931348623157E+308,
+        "MaxValue": 1.7976931348623157E+308,
+        "Step": 0.1,
+        "DefaultValue": 0.0,
+        "ParameterType": "Double",
+        "PropertyName": "LowerMultiplier",
+        "FriendlyName": "Lower Multiplier",
+        "GroupName": "Envelope",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -1.7976931348623157E+308,
+        "MaxValue": 1.7976931348623157E+308,
+        "Step": 0.1,
+        "DefaultValue": 0.0,
+        "ParameterType": "Double",
+        "PropertyName": "UpperMultiplier",
+        "FriendlyName": "Upper Multiplier",
+        "GroupName": "Envelope",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 200,
+        "ParameterType": "Integer",
+        "PropertyName": "RankPeriod",
+        "FriendlyName": "Percentile Lookback",
+        "GroupName": "Envelope",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -1.7976931348623157E+308,
+        "MaxValue": 1.7976931348623157E+308,
+        "Step": 0.1,
+        "DefaultValue": 0.01,
+        "ParameterType": "Double",
+        "PropertyName": "DecisionThresholdUnused",
+        "FriendlyName": "Decision Threshold (unused in source)",
+        "GroupName": "Legacy",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 7,
+        "ParameterType": "Integer",
+        "PropertyName": "Wow",
+        "FriendlyName": "Wow",
+        "GroupName": "Trend",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 34,
+        "ParameterType": "Integer",
+        "PropertyName": "Ma1",
+        "FriendlyName": "MA 1",
+        "GroupName": "Trend",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 144,
+        "ParameterType": "Integer",
+        "PropertyName": "Ma2",
+        "FriendlyName": "MA 2",
+        "GroupName": "Trend",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 377,
+        "ParameterType": "Integer",
+        "PropertyName": "Ma3",
+        "FriendlyName": "MA 3",
+        "GroupName": "Trend",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -1.7976931348623157E+308,
+        "MaxValue": 1.7976931348623157E+308,
+        "Step": 0.1,
+        "DefaultValue": 400.0,
+        "ParameterType": "Double",
+        "PropertyName": "ProfitThreshold",
+        "FriendlyName": "Conditional profit exit (account currency)",
+        "GroupName": "Execution",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 8,
+        "ParameterType": "Integer",
+        "PropertyName": "DiPeriod",
+        "FriendlyName": "ADX Length",
+        "GroupName": "DI and MACD visuals",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 200,
+        "ParameterType": "Integer",
+        "PropertyName": "AdxPeriod",
+        "FriendlyName": "ADX Smoothing",
+        "GroupName": "DI and MACD visuals",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "EnumValues": {
+          "Close": 0,
+          "Open": 1,
+          "High": 2,
+          "Low": 3,
+          "HL2": 4,
+          "HLC3": 5,
+          "OHLC4": 6
+        },
+        "DefaultValue": 0,
+        "ParameterType": "Enum",
+        "PropertyName": "MacdSource",
+        "FriendlyName": "MACD Source",
+        "GroupName": "DI and MACD visuals",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 4,
+        "ParameterType": "Integer",
+        "PropertyName": "MacdFast",
+        "FriendlyName": "MACD Fast Length",
+        "GroupName": "DI and MACD visuals",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 28,
+        "ParameterType": "Integer",
+        "PropertyName": "MacdSlow",
+        "FriendlyName": "MACD Slow Length",
+        "GroupName": "DI and MACD visuals",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 14,
+        "ParameterType": "Integer",
+        "PropertyName": "MacdSignal",
+        "FriendlyName": "MACD Signal Length",
+        "GroupName": "DI and MACD visuals",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "EnablePc",
+        "FriendlyName": "Enable Pip Collector MTF Filter",
+        "GroupName": "Pip Collector",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "RequireFlip",
+        "FriendlyName": "Require Flip Signal for trend entry",
+        "GroupName": "Pip Collector",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "EnumValues": {
+          "Close": 0,
+          "Open": 1,
+          "High": 2,
+          "Low": 3,
+          "HL2": 4,
+          "HLC3": 5,
+          "OHLC4": 6
+        },
+        "DefaultValue": 0,
+        "ParameterType": "Enum",
+        "PropertyName": "PcSource",
+        "FriendlyName": "PC Source",
+        "GroupName": "Pip Collector",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 2,
+        "ParameterType": "Integer",
+        "PropertyName": "PcCenterPeriod",
+        "FriendlyName": "PC Center EMA Length",
+        "GroupName": "Pip Collector",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 2,
+        "ParameterType": "Integer",
+        "PropertyName": "PcLowerTicks",
+        "FriendlyName": "PC Lower Distance (ticks, source mintick)",
+        "GroupName": "Pip Collector",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 2,
+        "ParameterType": "Integer",
+        "PropertyName": "PcUpperTicks",
+        "FriendlyName": "PC Upper Distance (ticks, source mintick)",
+        "GroupName": "Pip Collector",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 200,
+        "ParameterType": "Integer",
+        "PropertyName": "WavePeriod",
+        "FriendlyName": "Wave Smoothing Period",
+        "GroupName": "Cloud wave",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -1.7976931348623157E+308,
+        "MaxValue": 1.7976931348623157E+308,
+        "Step": 0.1,
+        "DefaultValue": 0.9,
+        "ParameterType": "Double",
+        "PropertyName": "WaveAmplitude",
+        "FriendlyName": "Wave Cloud Usage",
+        "GroupName": "Cloud wave",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "VisualEnvelope",
+        "FriendlyName": "Envelope Bands",
+        "GroupName": "Visuals",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "VisualHeikinAshi",
+        "FriendlyName": "Heikin Ashi Visual",
+        "GroupName": "Visuals",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "VisualWave",
+        "FriendlyName": "Colored Wave In Cloud",
+        "GroupName": "Visuals",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "VisualAdvantage",
+        "FriendlyName": "Cloud Advantage Background",
+        "GroupName": "Visuals",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "VisualSignalLabels",
+        "FriendlyName": "Show confirmed breakout labels",
+        "GroupName": "Visuals",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "VisualDiMacdLabels",
+        "FriendlyName": "Show DI/MACD signal labels",
+        "GroupName": "Visuals",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "VisualCandleColors",
+        "FriendlyName": "Show Candle Colors",
+        "GroupName": "Visuals",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "VisualPcBackground",
+        "FriendlyName": "PC Background on full sync",
+        "GroupName": "Pip Collector",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "VisualPcColumns",
+        "FriendlyName": "PC Flip Markers",
+        "GroupName": "Pip Collector",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "VisualMeasures",
+        "FriendlyName": "Show Measurements",
+        "GroupName": "Measurements",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "VisualLevelLines",
+        "FriendlyName": "Show Level Lines",
+        "GroupName": "Measurements",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "VisualCloudBox",
+        "FriendlyName": "Show Cloud Box",
+        "GroupName": "Measurements",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "VisualDistance",
+        "FriendlyName": "Show Price Distance",
+        "GroupName": "Measurements",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "VisualWidth",
+        "FriendlyName": "Show Cloud Width",
+        "GroupName": "Measurements",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "VisualDelta",
+        "FriendlyName": "Show Price Delta Line",
+        "GroupName": "Measurements",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "VisualTradeMetrics",
+        "FriendlyName": "Show Trade Metrics",
+        "GroupName": "Measurements",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 50,
+        "ParameterType": "Integer",
+        "PropertyName": "VisualMeasureHistory",
+        "FriendlyName": "Measurement History Bars",
+        "GroupName": "Measurements",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 450,
+        "ParameterType": "Integer",
+        "PropertyName": "VisualMaxDrawings",
+        "FriendlyName": "Max Drawings",
+        "GroupName": "Measurements",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "AutoHighLow",
+        "ParameterType": "String",
+        "PropertyName": "VisualLabelPosition",
+        "FriendlyName": "Label Position: AutoHighLow/Above/Below",
+        "GroupName": "Visuals",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "Aurora",
+        "ParameterType": "String",
+        "PropertyName": "VisualTheme",
+        "FriendlyName": "Theme: Aurora/Neon/Classic",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "VisualCustomPalette",
+        "FriendlyName": "Use Custom Palette",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "VisualIchimoku",
+        "FriendlyName": "Show Ichimoku (navigation only)",
+        "GroupName": "Ichimoku navigation",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 9,
+        "ParameterType": "Integer",
+        "PropertyName": "VisualTenkan",
+        "FriendlyName": "Tenkan Period",
+        "GroupName": "Ichimoku navigation",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 26,
+        "ParameterType": "Integer",
+        "PropertyName": "VisualKijun",
+        "FriendlyName": "Kijun Period",
+        "GroupName": "Ichimoku navigation",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 52,
+        "ParameterType": "Integer",
+        "PropertyName": "VisualSenkouB",
+        "FriendlyName": "Senkou B Period",
+        "GroupName": "Ichimoku navigation",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 26,
+        "ParameterType": "Integer",
+        "PropertyName": "VisualDisplacement",
+        "FriendlyName": "Cloud Displacement (bars)",
+        "GroupName": "Ichimoku navigation",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "VisualVolumeCandles",
+        "FriendlyName": "Volume Candle Evolution",
+        "GroupName": "HA volume navigation",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 20,
+        "ParameterType": "Integer",
+        "PropertyName": "VisualVolumePeriod",
+        "FriendlyName": "Relative Tick Volume Length",
+        "GroupName": "HA volume navigation",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -1.7976931348623157E+308,
+        "MaxValue": 1.7976931348623157E+308,
+        "Step": 0.1,
+        "DefaultValue": 3.0,
+        "ParameterType": "Double",
+        "PropertyName": "VisualVolumeCap",
+        "FriendlyName": "Relative Volume Visual Cap",
+        "GroupName": "HA volume navigation",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": -2147483648,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 80,
+        "ParameterType": "Integer",
+        "PropertyName": "VisualCandleHistory",
+        "FriendlyName": "HA Drawing History",
+        "GroupName": "HA volume navigation",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#008080",
+        "ParameterType": "String",
+        "PropertyName": "VisualBull",
+        "FriendlyName": "Bull ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#800000",
+        "ParameterType": "String",
+        "PropertyName": "VisualBear",
+        "FriendlyName": "Bear ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#80000000",
+        "ParameterType": "String",
+        "PropertyName": "VisualNeutral",
+        "FriendlyName": "Neutral ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#FFFFFFFF",
+        "ParameterType": "String",
+        "PropertyName": "VisualText",
+        "FriendlyName": "Text ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#40008080",
+        "ParameterType": "String",
+        "PropertyName": "VisualLongSignal",
+        "FriendlyName": "LongSignal ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#40800000",
+        "ParameterType": "String",
+        "PropertyName": "VisualShortSignal",
+        "FriendlyName": "ShortSignal ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#8C008080",
+        "ParameterType": "String",
+        "PropertyName": "VisualWaveUp",
+        "FriendlyName": "WaveUp ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#8C800000",
+        "ParameterType": "String",
+        "PropertyName": "VisualWaveDown",
+        "FriendlyName": "WaveDown ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#CC000000",
+        "ParameterType": "String",
+        "PropertyName": "VisualCandleUp",
+        "FriendlyName": "CandleUp ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#66800000",
+        "ParameterType": "String",
+        "PropertyName": "VisualCandleDown",
+        "FriendlyName": "CandleDown ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#40008080",
+        "ParameterType": "String",
+        "PropertyName": "VisualMaUp",
+        "FriendlyName": "MaUp ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#40800000",
+        "ParameterType": "String",
+        "PropertyName": "VisualMaDown",
+        "FriendlyName": "MaDown ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#B3008080",
+        "ParameterType": "String",
+        "PropertyName": "VisualPcLong",
+        "FriendlyName": "PcLong ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#B3800000",
+        "ParameterType": "String",
+        "PropertyName": "VisualPcShort",
+        "FriendlyName": "PcShort ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#80FFFF00",
+        "ParameterType": "String",
+        "PropertyName": "VisualBasis",
+        "FriendlyName": "Basis ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#8000FFFF",
+        "ParameterType": "String",
+        "PropertyName": "VisualFilter",
+        "FriendlyName": "Filter ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#80808000",
+        "ParameterType": "String",
+        "PropertyName": "VisualPcBgLong",
+        "FriendlyName": "PcBgLong ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#80800000",
+        "ParameterType": "String",
+        "PropertyName": "VisualPcBgShort",
+        "FriendlyName": "PcBgShort ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#80008080",
+        "ParameterType": "String",
+        "PropertyName": "VisualAdvantageLong",
+        "FriendlyName": "AdvantageLong ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#80800000",
+        "ParameterType": "String",
+        "PropertyName": "VisualAdvantageShort",
+        "FriendlyName": "AdvantageShort ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#80800080",
+        "ParameterType": "String",
+        "PropertyName": "VisualDistanceColor",
+        "FriendlyName": "DistanceColor ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#80FF00FF",
+        "ParameterType": "String",
+        "PropertyName": "VisualWidthColor",
+        "FriendlyName": "WidthColor ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#80008080",
+        "ParameterType": "String",
+        "PropertyName": "VisualDeltaUp",
+        "FriendlyName": "DeltaUp ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#80800000",
+        "ParameterType": "String",
+        "PropertyName": "VisualDeltaDown",
+        "FriendlyName": "DeltaDown ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#80C0C0C0",
+        "ParameterType": "String",
+        "PropertyName": "VisualLevelColor",
+        "FriendlyName": "LevelColor ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#F2000080",
+        "ParameterType": "String",
+        "PropertyName": "VisualBoxBorder",
+        "FriendlyName": "BoxBorder ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#EB808000",
+        "ParameterType": "String",
+        "PropertyName": "VisualBoxFill",
+        "FriendlyName": "BoxFill ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#80FFFFFF",
+        "ParameterType": "String",
+        "PropertyName": "VisualMeasureText",
+        "FriendlyName": "MeasureText ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#80008080",
+        "ParameterType": "String",
+        "PropertyName": "VisualTradeProfit",
+        "FriendlyName": "TradeProfit ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#80800000",
+        "ParameterType": "String",
+        "PropertyName": "VisualTradeLoss",
+        "FriendlyName": "TradeLoss ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "m5",
+        "ParameterType": "TimeFrame",
+        "PropertyName": "PcTf1",
+        "FriendlyName": "PC Timeframe 1",
+        "GroupName": "Pip Collector",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "m15",
+        "ParameterType": "TimeFrame",
+        "PropertyName": "PcTf2",
+        "FriendlyName": "PC Timeframe 2",
+        "GroupName": "Pip Collector",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "m45",
+        "ParameterType": "TimeFrame",
+        "PropertyName": "PcTf3",
+        "FriendlyName": "PC Timeframe 3",
+        "GroupName": "Pip Collector",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": 0.01,
+        "MaxValue": 1.7976931348623157E+308,
+        "Step": 0.1,
+        "DefaultValue": 90.0,
+        "ParameterType": "Double",
+        "PropertyName": "EquityPercent",
+        "FriendlyName": "Equity allocation % (not loss risk)",
+        "GroupName": "Execution",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": true,
+        "ParameterType": "Boolean",
+        "PropertyName": "EnableTrading",
+        "FriendlyName": "Enable Trading",
+        "GroupName": "Execution",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "EnumValues": {
+          "EveryTick": 0,
+          "ClosedBars": 1
+        },
+        "DefaultValue": 0,
+        "ParameterType": "Enum",
+        "PropertyName": "Evaluation",
+        "FriendlyName": "Evaluation",
+        "GroupName": "Execution",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "XI-1",
+        "ParameterType": "String",
+        "PropertyName": "InstanceKey",
+        "FriendlyName": "Instance Key (unique per chart)",
+        "GroupName": "Execution",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "MinValue": 500,
+        "MaxValue": 2147483647,
+        "Step": 1,
+        "DefaultValue": 3000,
+        "ParameterType": "Integer",
+        "PropertyName": "WarmupBars",
+        "FriendlyName": "Warm-up Bars",
+        "GroupName": "Diagnostics",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": false,
+        "ParameterType": "Boolean",
+        "PropertyName": "Trace",
+        "FriendlyName": "Export Trace to cBot Log",
+        "GroupName": "Diagnostics",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#80008080",
+        "ParameterType": "String",
+        "PropertyName": "LegacyCandleUp",
+        "FriendlyName": "Legacy Up Candle ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      },
+      {
+        "DefaultValue": "#80800000",
+        "ParameterType": "String",
+        "PropertyName": "LegacyCandleDown",
+        "FriendlyName": "Legacy Down Candle ARGB",
+        "GroupName": "Palette",
+        "IsValueVisibleInTitle": true,
+        "Description": ""
+      }
+    ],
+    "Capabilities": [],
+    "CustomAttributes": [],
+    "Sets": [],
+    "AddIndicatorsToChart": false,
+    "AdditionalInfoUrl": null,
+    "Bars": []
+  }
+]

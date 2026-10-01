@@ -1,0 +1,24 @@
+PASS Declared XI defaults preserved
+PASS Pine round half-away for Wow/2
+PASS WMA gives largest weight to newest value
+PASS WMA missing history is NaN
+PASS ALMA follows unfloored offset and correct chronology
+PASS EMA seeds from first finite sample
+PASS RMA seeds using SMA rather than EMA seed
+PASS stdev1 zero and default percentile 100
+PASS MAD retains rolling-deviation source formula
+PASS crossovers include previous equality but not present equality
+PASS Hull comparison is exactly two bars delayed
+PASS repeated ticks roll back EMA/HA/PC to previous bar
+PASS PC flip uses bar timestamps and survives repeated ticks
+PASS PC distances use mintick, not pips
+PASS core entry is independent of PC synchronization
+PASS profit exit is conditional and strictly greater than 400
+PASS source order keeps core entries before close and trend
+PASS pyramiding0 filters same-side entry snapshot
+PASS same-ID entry updates retain last source call
+PASS display-only state does not gate orders
+PASS historical MTF cannot read unclosed higher timeframe
+PASS lower timeframe historical sample is last closed intrabar
+PASS MTF gap carries known bar and never future bar
+23 tests passed. These are kernel fixtures, not Pine/cTrader backtest parity.

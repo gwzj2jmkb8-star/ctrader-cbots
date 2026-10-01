@@ -1,0 +1,15 @@
+API: cTrader.Automate 1.0.21; .NET 6.
+Compilation: one actual assembly, zero compiler warnings/errors.
+Packaging: official Spotware ExtractMetadataTask and BundleAlgoTask.
+Installable entry points: exactly one Robot, cAlgo.Robots.mojaTyMoja.
+Runtime assembly embedded: mojaTyMoja.dll.
+CT0003 regression: combined Robot/Indicator reproduced rejection; final single-Robot metadata extraction succeeds.
+Kernel and MTF adapter bodies: unchanged from prior package.
+23 deterministic kernel fixtures: PASS against the final assembly.
+Visuals: internal cBot drawing helper, no Indicator subclass or algo attribute.
+Custom assembly references: none.
+Project root: mojaTyMoja.cs, mojaTyMoja.csproj.
+Desktop import/rendering/trading: NOT RUN.
+d5cca66089acf25425a57d29832844fe7bc675abd2cb0c3c20ee4b307647d622  mojaTyMoja.cs
+5b649e91427877895d58e5c1fdc32994633971ccd75a5b78fabccf7d214e4adf  artifacts/mojaTyMoja.dll
+5df94af96a73105d3d8664fde5a5734ab074efc82d1d2525d8cf6548dc9646be  artifacts/mojaTyMoja.algo

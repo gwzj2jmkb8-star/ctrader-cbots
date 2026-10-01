@@ -1,0 +1,150 @@
+//@version=6
+// Execution-only transcription of the user's Functional_Mixture_XI, supplied 2026-09-30.
+// Markdown wrappers removed; f_percentrank local-variable indentation repaired.
+// Visual-only code omitted. Diagnostic plots do not change trading conditions.
+strategy(title='Functional_Mixture_XI_reference', overlay=true, calc_on_order_fills=true, calc_on_every_tick=true, default_qty_type=strategy.percent_of_equity, default_qty_value=90, pyramiding=0, initial_capital=10000, max_labels_count=500)
+src = input.source(close, "Source")
+smoothingPeriod = input.int(200, "Smoothing Period")
+smoothingMethod = input.string("ALMA", "Smoothing Method", options=["EMA", "ALMA"])
+almaOffset = input.float(0.94, "ALMA Offset Factor", step=0.01)
+almaSigma = input.float(121.0, "ALMA Sigma Value", minval=0.1, step=0.1)
+filterEmaPeriod = input.int(2, "FILTER EMA Period", minval=1)
+atrPeriodOffset = input.int(37, "ATR Period Offset", minval=1)
+atrMultiplierOffset = input.float(0.6, "ATR Multiplier Offset", minval=0.0, step=0.01)
+volCalcMethod = input.string("stdev", "Volatility Calculation", options=["mad", "stdev"])
+volPeriod = input.int(1, "Volatility Period", minval=1)
+volEmaPeriod = input.int(200, "Volatility EMA Period", minval=1)
+lowerMultiplier = input.float(0, "Lower Multiplier", minval=0.0, step=0.1)
+upperMultiplier = input.float(0, "Upper Multiplier", minval=0.0, step=0.1)
+percentileLookback = input.int(200, "Percentile Lookback", minval=1)
+dt = input.float(0.01, "Decision Threshold (unused)", step=0.01)
+keh = input.int(7, "Wow", minval=1)
+che1 = input.int(34, "MA 1", minval=1)
+che2 = input.int(144, "MA 2", minval=1)
+che3 = input.int(377, "MA 3", minval=1)
+amnt = input.int(400, "TP ($)", minval=1)
+length = input.int(8, "ADX Length")
+smoothing = input.int(200, "ADX Smoothing")
+macdsource = input.source(close, "MACD Source")
+macdfast = input.int(4, "MACD Fast Length")
+macdslow = input.int(28, "MACD Slow Length")
+macdsignal = input.int(14, "MACD Signal Length")
+tms = 10000000000000.0
+wma1 = ta.wma(close, che1)
+wma2 = ta.wma(close, che2)
+wma3 = ta.wma(close, che3)
+A = request.security(syminfo.tickerid, 'D', close) * tms
+B = request.security(syminfo.tickerid, 'D', close[1]) * tms
+n2ma = 2.0 * ta.wma(close, int(math.round(keh / 2.0)))
+nma = ta.wma(close, keh)
+diff = n2ma - nma
+sqn = int(math.round(math.sqrt(keh)))
+n2ma1 = 2.0 * ta.wma(close[2], int(math.round(keh / 2.0)))
+nma1 = ta.wma(close[2], keh)
+diff1 = n2ma1 - nma1
+sqn1 = int(math.round(math.sqrt(keh)))
+n1 = ta.wma(diff, sqn) * tms
+n2 = ta.wma(diff1, sqn1) * tms
+[diplus, diminus, adx] = ta.dmi(length, smoothing)
+[macdline, signalline, histline] = ta.macd(macdsource, macdfast, macdslow, macdsignal)
+longcheck = diplus > diminus and macdline > signalline
+shortcheck = diminus > diplus and signalline > macdline
+f_mad(x, len) =>
+    mean = ta.sma(x, len)
+    ta.sma(math.abs(x - mean), len)
+f_percentrank(x, len) =>
+    float count = 0.0
+    float valid = 0.0
+    for i = 0 to len - 1
+        v = x[i]
+        if not na(v) and not na(x)
+            valid += 1.0
+            count += x >= v ? 1.0 : 0.0
+    valid > 0.0 ? 100.0 * count / valid : na
+basis = smoothingMethod == "EMA" ? ta.ema(src, smoothingPeriod) : ta.alma(src, smoothingPeriod, almaOffset, almaSigma)
+filterEma = ta.ema(src, filterEmaPeriod)
+volRaw = volCalcMethod == "mad" ? f_mad(src, volPeriod) : ta.stdev(src, volPeriod)
+volatility = ta.ema(volRaw, volEmaPeriod)
+volPercentile = f_percentrank(volatility, percentileLookback)
+highVolRegime = nz(volPercentile, 0.0) >= 50.0
+atrOffset = ta.atr(atrPeriodOffset) * atrMultiplierOffset
+upperBand = basis + volatility * upperMultiplier + atrOffset
+lowerBand = basis - volatility * lowerMultiplier - atrOffset
+longSignal = ta.crossover(close, upperBand) and close > filterEma and highVolRegime
+shortSignal = ta.crossunder(close, lowerBand) and close < filterEma and highVolRegime
+longExit = ta.crossunder(close, basis) or shortSignal
+shortExit = ta.crossover(close, basis) or longSignal
+if longSignal
+    strategy.entry("Long", strategy.long)
+if shortSignal
+    strategy.entry("Short", strategy.short)
+if strategy.position_size > 0 and longExit
+    strategy.close("Long")
+if strategy.position_size < 0 and shortExit
+    strategy.close("Short")
+var int trade = 0
+if trade == 0 and longcheck
+    trade := 1
+else if trade == 0 and shortcheck
+    trade := -1
+else if trade == 1 and shortcheck
+    trade := -1
+else if trade == -1 and longcheck
+    trade := 1
+else
+    trade := nz(trade[1], 0)
+enablePipCollector = input.bool(true, "Enable Pip Collector MTF Filter")
+requireFlipSignal = input.bool(true, "Require Flip Signal (crossover) for entry")
+pc_src = input.source(close, "PC Source")
+pc_tf1 = input.timeframe("5", "PC Timeframe 1")
+pc_tf2 = input.timeframe("15", "PC Timeframe 2")
+pc_tf3 = input.timeframe("45", "PC Timeframe 3")
+pc_lenCenter = input.int(2, "PC Center EMA Length", minval=1)
+pc_lenLower = input.int(2, "PC Lower Distance (pips)", minval=1)
+pc_lenUpper = input.int(2, "PC Upper Distance (pips)", minval=1)
+pc_ltfsrc = ta.ema(pc_src, pc_lenCenter) < pc_src
+pc_stfsrc = ta.ema(pc_src, pc_lenCenter) > pc_src
+pc_ltf1 = request.security(syminfo.tickerid, pc_tf1, pc_ltfsrc)
+pc_stf1 = request.security(syminfo.tickerid, pc_tf1, pc_stfsrc)
+pc_ltf2 = request.security(syminfo.tickerid, pc_tf2, pc_ltfsrc)
+pc_stf2 = request.security(syminfo.tickerid, pc_tf2, pc_stfsrc)
+pc_ltf3 = request.security(syminfo.tickerid, pc_tf3, pc_ltfsrc)
+pc_stf3 = request.security(syminfo.tickerid, pc_tf3, pc_stfsrc)
+pc_long_sync = pc_ltf1 and pc_ltf2 and pc_ltf3
+pc_short_sync = pc_stf1 and pc_stf2 and pc_stf3
+var int pc_last_long = na
+var int pc_last_short = na
+pc_last_long := pc_long_sync ? time : nz(pc_last_long[1])
+pc_last_short := pc_short_sync ? time : nz(pc_last_short[1])
+pc_long_signal = ta.crossover(pc_last_long, pc_last_short)
+pc_short_signal = ta.crossover(pc_last_short, pc_last_long)
+pc_long_ok = not enablePipCollector or (pc_long_sync and (not requireFlipSignal or pc_long_signal))
+pc_short_ok = not enablePipCollector or (pc_short_sync and (not requireFlipSignal or pc_short_signal))
+closelong = A < B and n2 > n1 and strategy.openprofit > amnt
+closeshort = A > B and n1 > n2 and strategy.openprofit > amnt
+if closelong
+    strategy.close('Long')
+if closeshort
+    strategy.close('Short')
+longCondition = (A > B and n1 > n2) and pc_long_ok
+shortCondition = (A < B and n1 < n2) and pc_short_ok
+if longCondition
+    strategy.entry('Long', strategy.long)
+if shortCondition
+    strategy.entry('Short', strategy.short)
+// Diagnostic fields for exporting TradingView chart data.
+plot(basis, 'xi_basis')
+plot(upperBand, 'xi_upper')
+plot(lowerBand, 'xi_lower')
+plot(filterEma, 'xi_filter')
+plot(volPercentile, 'xi_rank', display=display.data_window)
+plot(n1 / tms, 'xi_hull', display=display.data_window)
+plot(n2 / tms, 'xi_hull2', display=display.data_window)
+plot(A / tms, 'xi_daily', display=display.data_window)
+plot(B / tms, 'xi_previous_daily', display=display.data_window)
+plot(longSignal ? 1 : 0, 'xi_core_long', display=display.data_window)
+plot(shortSignal ? 1 : 0, 'xi_core_short', display=display.data_window)
+plot(pc_long_signal ? 1 : 0, 'xi_pc_long_flip', display=display.data_window)
+plot(pc_short_signal ? 1 : 0, 'xi_pc_short_flip', display=display.data_window)
+plot(longCondition ? 1 : 0, 'xi_trend_long', display=display.data_window)
+plot(shortCondition ? 1 : 0, 'xi_trend_short', display=display.data_window)

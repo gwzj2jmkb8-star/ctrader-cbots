@@ -1,0 +1,664 @@
+{
+  "core": [
+    {
+      "property": "Source",
+      "type": "PriceInput",
+      "default": "PriceInput.Close",
+      "label": "Source",
+      "group": "Core"
+    },
+    {
+      "property": "SmoothingPeriod",
+      "type": "int",
+      "default": "200",
+      "label": "Smoothing Period",
+      "group": "Core"
+    },
+    {
+      "property": "SmoothingMethod",
+      "type": "SmoothingKind",
+      "default": "SmoothingKind.ALMA",
+      "label": "Smoothing Method",
+      "group": "Core"
+    },
+    {
+      "property": "AlmaOffset",
+      "type": "double",
+      "default": ".94",
+      "label": "ALMA Offset Factor",
+      "group": "Core"
+    },
+    {
+      "property": "AlmaSigma",
+      "type": "double",
+      "default": "121.0",
+      "label": "ALMA Sigma Value",
+      "group": "Core"
+    },
+    {
+      "property": "FilterPeriod",
+      "type": "int",
+      "default": "2",
+      "label": "FILTER EMA Period",
+      "group": "Core"
+    },
+    {
+      "property": "AtrPeriod",
+      "type": "int",
+      "default": "37",
+      "label": "ATR Period Offset",
+      "group": "Envelope"
+    },
+    {
+      "property": "AtrMultiplier",
+      "type": "double",
+      "default": ".6",
+      "label": "ATR Multiplier Offset",
+      "group": "Envelope"
+    },
+    {
+      "property": "VolMethod",
+      "type": "VolatilityKind",
+      "default": "VolatilityKind.Stdev",
+      "label": "Volatility Calculation",
+      "group": "Envelope"
+    },
+    {
+      "property": "VolPeriod",
+      "type": "int",
+      "default": "1",
+      "label": "Volatility Period",
+      "group": "Envelope"
+    },
+    {
+      "property": "VolEmaPeriod",
+      "type": "int",
+      "default": "200",
+      "label": "Volatility EMA Period",
+      "group": "Envelope"
+    },
+    {
+      "property": "LowerMultiplier",
+      "type": "double",
+      "default": "0.0",
+      "label": "Lower Multiplier",
+      "group": "Envelope"
+    },
+    {
+      "property": "UpperMultiplier",
+      "type": "double",
+      "default": "0.0",
+      "label": "Upper Multiplier",
+      "group": "Envelope"
+    },
+    {
+      "property": "RankPeriod",
+      "type": "int",
+      "default": "200",
+      "label": "Percentile Lookback",
+      "group": "Envelope"
+    },
+    {
+      "property": "DecisionThresholdUnused",
+      "type": "double",
+      "default": ".01",
+      "label": "Decision Threshold (unused in source)",
+      "group": "Legacy"
+    },
+    {
+      "property": "Wow",
+      "type": "int",
+      "default": "7",
+      "label": "Wow",
+      "group": "Trend"
+    },
+    {
+      "property": "Ma1",
+      "type": "int",
+      "default": "34",
+      "label": "MA 1",
+      "group": "Trend"
+    },
+    {
+      "property": "Ma2",
+      "type": "int",
+      "default": "144",
+      "label": "MA 2",
+      "group": "Trend"
+    },
+    {
+      "property": "Ma3",
+      "type": "int",
+      "default": "377",
+      "label": "MA 3",
+      "group": "Trend"
+    },
+    {
+      "property": "ProfitThreshold",
+      "type": "double",
+      "default": "400.0",
+      "label": "Conditional profit exit (account currency)",
+      "group": "Execution"
+    },
+    {
+      "property": "DiPeriod",
+      "type": "int",
+      "default": "8",
+      "label": "ADX Length",
+      "group": "DI and MACD visuals"
+    },
+    {
+      "property": "AdxPeriod",
+      "type": "int",
+      "default": "200",
+      "label": "ADX Smoothing",
+      "group": "DI and MACD visuals"
+    },
+    {
+      "property": "MacdSource",
+      "type": "PriceInput",
+      "default": "PriceInput.Close",
+      "label": "MACD Source",
+      "group": "DI and MACD visuals"
+    },
+    {
+      "property": "MacdFast",
+      "type": "int",
+      "default": "4",
+      "label": "MACD Fast Length",
+      "group": "DI and MACD visuals"
+    },
+    {
+      "property": "MacdSlow",
+      "type": "int",
+      "default": "28",
+      "label": "MACD Slow Length",
+      "group": "DI and MACD visuals"
+    },
+    {
+      "property": "MacdSignal",
+      "type": "int",
+      "default": "14",
+      "label": "MACD Signal Length",
+      "group": "DI and MACD visuals"
+    },
+    {
+      "property": "EnablePc",
+      "type": "bool",
+      "default": "true",
+      "label": "Enable Pip Collector MTF Filter",
+      "group": "Pip Collector"
+    },
+    {
+      "property": "RequireFlip",
+      "type": "bool",
+      "default": "true",
+      "label": "Require Flip Signal for trend entry",
+      "group": "Pip Collector"
+    },
+    {
+      "property": "PcSource",
+      "type": "PriceInput",
+      "default": "PriceInput.Close",
+      "label": "PC Source",
+      "group": "Pip Collector"
+    },
+    {
+      "property": "PcCenterPeriod",
+      "type": "int",
+      "default": "2",
+      "label": "PC Center EMA Length",
+      "group": "Pip Collector"
+    },
+    {
+      "property": "PcLowerTicks",
+      "type": "int",
+      "default": "2",
+      "label": "PC Lower Distance (ticks, source mintick)",
+      "group": "Pip Collector"
+    },
+    {
+      "property": "PcUpperTicks",
+      "type": "int",
+      "default": "2",
+      "label": "PC Upper Distance (ticks, source mintick)",
+      "group": "Pip Collector"
+    },
+    {
+      "property": "WavePeriod",
+      "type": "int",
+      "default": "200",
+      "label": "Wave Smoothing Period",
+      "group": "Cloud wave"
+    },
+    {
+      "property": "WaveAmplitude",
+      "type": "double",
+      "default": ".90",
+      "label": "Wave Cloud Usage",
+      "group": "Cloud wave"
+    }
+  ],
+  "visual": [
+    {
+      "property": "Envelope",
+      "type": "bool",
+      "default": "true",
+      "label": "Envelope Bands",
+      "group": "Visuals"
+    },
+    {
+      "property": "HeikinAshi",
+      "type": "bool",
+      "default": "true",
+      "label": "Heikin Ashi Visual",
+      "group": "Visuals"
+    },
+    {
+      "property": "Wave",
+      "type": "bool",
+      "default": "true",
+      "label": "Colored Wave In Cloud",
+      "group": "Visuals"
+    },
+    {
+      "property": "Advantage",
+      "type": "bool",
+      "default": "true",
+      "label": "Cloud Advantage Background",
+      "group": "Visuals"
+    },
+    {
+      "property": "SignalLabels",
+      "type": "bool",
+      "default": "true",
+      "label": "Show confirmed breakout labels",
+      "group": "Visuals"
+    },
+    {
+      "property": "DiMacdLabels",
+      "type": "bool",
+      "default": "true",
+      "label": "Show DI/MACD signal labels",
+      "group": "Visuals"
+    },
+    {
+      "property": "CandleColors",
+      "type": "bool",
+      "default": "true",
+      "label": "Show Candle Colors",
+      "group": "Visuals"
+    },
+    {
+      "property": "PcBackground",
+      "type": "bool",
+      "default": "true",
+      "label": "PC Background on full sync",
+      "group": "Pip Collector"
+    },
+    {
+      "property": "PcColumns",
+      "type": "bool",
+      "default": "true",
+      "label": "PC Flip Markers",
+      "group": "Pip Collector"
+    },
+    {
+      "property": "Measures",
+      "type": "bool",
+      "default": "true",
+      "label": "Show Measurements",
+      "group": "Measurements"
+    },
+    {
+      "property": "LevelLines",
+      "type": "bool",
+      "default": "true",
+      "label": "Show Level Lines",
+      "group": "Measurements"
+    },
+    {
+      "property": "CloudBox",
+      "type": "bool",
+      "default": "true",
+      "label": "Show Cloud Box",
+      "group": "Measurements"
+    },
+    {
+      "property": "Distance",
+      "type": "bool",
+      "default": "true",
+      "label": "Show Price Distance",
+      "group": "Measurements"
+    },
+    {
+      "property": "Width",
+      "type": "bool",
+      "default": "true",
+      "label": "Show Cloud Width",
+      "group": "Measurements"
+    },
+    {
+      "property": "Delta",
+      "type": "bool",
+      "default": "true",
+      "label": "Show Price Delta Line",
+      "group": "Measurements"
+    },
+    {
+      "property": "TradeMetrics",
+      "type": "bool",
+      "default": "true",
+      "label": "Show Trade Metrics",
+      "group": "Measurements"
+    },
+    {
+      "property": "MeasureHistory",
+      "type": "int",
+      "default": "50",
+      "label": "Measurement History Bars",
+      "group": "Measurements"
+    },
+    {
+      "property": "MaxDrawings",
+      "type": "int",
+      "default": "450",
+      "label": "Max Drawings",
+      "group": "Measurements"
+    },
+    {
+      "property": "LabelPosition",
+      "type": "string",
+      "default": "\"AutoHighLow\"",
+      "label": "Label Position: AutoHighLow/Above/Below",
+      "group": "Visuals"
+    },
+    {
+      "property": "Theme",
+      "type": "string",
+      "default": "\"Aurora\"",
+      "label": "Theme: Aurora/Neon/Classic",
+      "group": "Palette"
+    },
+    {
+      "property": "CustomPalette",
+      "type": "bool",
+      "default": "true",
+      "label": "Use Custom Palette",
+      "group": "Palette"
+    },
+    {
+      "property": "Ichimoku",
+      "type": "bool",
+      "default": "true",
+      "label": "Show Ichimoku (navigation only)",
+      "group": "Ichimoku navigation"
+    },
+    {
+      "property": "Tenkan",
+      "type": "int",
+      "default": "9",
+      "label": "Tenkan Period",
+      "group": "Ichimoku navigation"
+    },
+    {
+      "property": "Kijun",
+      "type": "int",
+      "default": "26",
+      "label": "Kijun Period",
+      "group": "Ichimoku navigation"
+    },
+    {
+      "property": "SenkouB",
+      "type": "int",
+      "default": "52",
+      "label": "Senkou B Period",
+      "group": "Ichimoku navigation"
+    },
+    {
+      "property": "Displacement",
+      "type": "int",
+      "default": "26",
+      "label": "Cloud Displacement (bars)",
+      "group": "Ichimoku navigation"
+    },
+    {
+      "property": "VolumeCandles",
+      "type": "bool",
+      "default": "true",
+      "label": "Volume Candle Evolution",
+      "group": "HA volume navigation"
+    },
+    {
+      "property": "VolumePeriod",
+      "type": "int",
+      "default": "20",
+      "label": "Relative Tick Volume Length",
+      "group": "HA volume navigation"
+    },
+    {
+      "property": "VolumeCap",
+      "type": "double",
+      "default": "3.0",
+      "label": "Relative Volume Visual Cap",
+      "group": "HA volume navigation"
+    },
+    {
+      "property": "CandleHistory",
+      "type": "int",
+      "default": "80",
+      "label": "HA Drawing History",
+      "group": "HA volume navigation"
+    },
+    {
+      "property": "Bull",
+      "type": "string",
+      "default": "\"#008080\"",
+      "label": "Bull ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "Bear",
+      "type": "string",
+      "default": "\"#800000\"",
+      "label": "Bear ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "Neutral",
+      "type": "string",
+      "default": "\"#80000000\"",
+      "label": "Neutral ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "Text",
+      "type": "string",
+      "default": "\"#FFFFFFFF\"",
+      "label": "Text ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "LongSignal",
+      "type": "string",
+      "default": "\"#40008080\"",
+      "label": "LongSignal ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "ShortSignal",
+      "type": "string",
+      "default": "\"#40800000\"",
+      "label": "ShortSignal ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "WaveUp",
+      "type": "string",
+      "default": "\"#8C008080\"",
+      "label": "WaveUp ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "WaveDown",
+      "type": "string",
+      "default": "\"#8C800000\"",
+      "label": "WaveDown ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "CandleUp",
+      "type": "string",
+      "default": "\"#CC000000\"",
+      "label": "CandleUp ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "CandleDown",
+      "type": "string",
+      "default": "\"#66800000\"",
+      "label": "CandleDown ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "MaUp",
+      "type": "string",
+      "default": "\"#40008080\"",
+      "label": "MaUp ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "MaDown",
+      "type": "string",
+      "default": "\"#40800000\"",
+      "label": "MaDown ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "PcLong",
+      "type": "string",
+      "default": "\"#B3008080\"",
+      "label": "PcLong ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "PcShort",
+      "type": "string",
+      "default": "\"#B3800000\"",
+      "label": "PcShort ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "Basis",
+      "type": "string",
+      "default": "\"#80FFFF00\"",
+      "label": "Basis ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "Filter",
+      "type": "string",
+      "default": "\"#8000FFFF\"",
+      "label": "Filter ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "PcBgLong",
+      "type": "string",
+      "default": "\"#80808000\"",
+      "label": "PcBgLong ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "PcBgShort",
+      "type": "string",
+      "default": "\"#80800000\"",
+      "label": "PcBgShort ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "AdvantageLong",
+      "type": "string",
+      "default": "\"#80008080\"",
+      "label": "AdvantageLong ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "AdvantageShort",
+      "type": "string",
+      "default": "\"#80800000\"",
+      "label": "AdvantageShort ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "DistanceColor",
+      "type": "string",
+      "default": "\"#80800080\"",
+      "label": "DistanceColor ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "WidthColor",
+      "type": "string",
+      "default": "\"#80FF00FF\"",
+      "label": "WidthColor ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "DeltaUp",
+      "type": "string",
+      "default": "\"#80008080\"",
+      "label": "DeltaUp ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "DeltaDown",
+      "type": "string",
+      "default": "\"#80800000\"",
+      "label": "DeltaDown ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "LevelColor",
+      "type": "string",
+      "default": "\"#80C0C0C0\"",
+      "label": "LevelColor ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "BoxBorder",
+      "type": "string",
+      "default": "\"#F2000080\"",
+      "label": "BoxBorder ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "BoxFill",
+      "type": "string",
+      "default": "\"#EB808000\"",
+      "label": "BoxFill ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "MeasureText",
+      "type": "string",
+      "default": "\"#80FFFFFF\"",
+      "label": "MeasureText ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "TradeProfit",
+      "type": "string",
+      "default": "\"#80008080\"",
+      "label": "TradeProfit ARGB",
+      "group": "Palette"
+    },
+    {
+      "property": "TradeLoss",
+      "type": "string",
+      "default": "\"#80800000\"",
+      "label": "TradeLoss ARGB",
+      "group": "Palette"
+    }
+  ]
+}

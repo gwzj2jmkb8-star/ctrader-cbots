@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+ <PropertyGroup>
+  <TargetFramework>net6.0</TargetFramework><LangVersion>10.0</LangVersion><Nullable>disable</Nullable>
+  <AssemblyName>mojaTyMoja</AssemblyName><RootNamespace>cAlgo.Robots</RootNamespace>
+  <EnableDefaultCompileItems>false</EnableDefaultCompileItems><AlgoPublish>false</AlgoPublish><IncludeSource>true</IncludeSource>
+ </PropertyGroup>
+ <ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.21"/></ItemGroup>
+ <ItemGroup><Compile Include="mojaTyMoja.cs"/></ItemGroup>
+</Project>
