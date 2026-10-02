@@ -1,0 +1,52 @@
+# .gitignore
+
+# Operating system
+.DS_Store
+Thumbs.db
+
+# IDE and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build artifacts
+bin/
+bin/**
+obj/
+obj/**
+*.dll
+*.pdb
+*.exe
+*.app
+*.algo
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+venv/
+.venv/
+.env
+.env.*
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+
+# Logs and evidence
+logs/
+*.log
+*.csv~
+
+# Local tooling
+.mypy_cache/
+.ruff_cache/
+coverage/
+
+# Sensitive or generated data
+*.cbotset
+*.zip
+secret*
